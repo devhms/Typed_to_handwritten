@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Waterfall Model — Synthetic Document Showcase</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(56, 189, 248, 0.15) 0%, transparent 40%);
+        }
+
+        header {
+            padding: 4rem 2rem;
+            text-align: center;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            background: linear-gradient(to right, #fff, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+        }
+
+        .panel {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            transition: transform 0.3s ease;
+        }
+
+        .panel:hover {
+            transform: translateY(-5px);
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .panel-title {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .content-scroll {
+            height: 700px;
+            overflow-y: auto;
+            padding-right: 1rem;
+            scrollbar-width: thin;
+            scrollbar-color: var(--primary) transparent;
+        }
+
+        .content-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .content-scroll::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 10px;
+        }
+
+        .raw-text {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            white-space: pre-wrap;
+        }
+
+        .image-container {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #fff;
+            height: 100%;
+        }
+
+        .image-container img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .telemetry-overlay {
+            margin-top: 2rem;
+            grid-column: span 2;
+            background: #000;
+            color: #10b981;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 2rem;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            border: 1px solid #10b98133;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 10px;
+            height: 1.2em;
+            background: #10b981;
+            vertical-align: middle;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .badge {
+            background: rgba(99, 102, 241, 0.2);
+            color: var(--primary);
+            padding: 0.25rem 0.75rem;
+            border-radius: 99px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        footer {
+            text-align: center;
+            padding: 4rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        @media (max-width: 1024px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+            .telemetry-overlay {
+                grid-column: span 1;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Handwritten Synthesis</h1>
+        <p class="subtitle">A deep transformation of the Waterfall Model research summary into a realistic handwritten artifact.</p>
+    </header>
+
+    <main>
+        <!-- Digital Context Panel -->
+        <section class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Source Data</span>
+                <span class="badge">CLEAN DIGITAL</span>
+            </div>
+            <div class="content-scroll">
+                <div class="raw-text" id="rawContent">
+                    Loading source text...
+                </div>
+            </div>
+        </section>
+
+        <!-- Synthetic Artifact Panel -->
+        <section class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Synthetic Output</span>
+                <span class="badge">DEGRADED PHOTO</span>
+            </div>
+            <div class="content-scroll">
+                <div class="image-container">
+                    <img src="output/phase3/degraded_page.png" alt="Handwritten Document Photo">
+                </div>
+            </div>
+        </section>
+
+        <!-- Dynamic Telemetry -->
+        <section class="telemetry-overlay">
+            <div>$ tail -f transcription_logs.txt</div>
+            <div id="telemetryLog"></div>
+            <span class="cursor"></span>
+        </section>
+    </main>
+
+    <footer>
+        &copy; 2026 PakE OCR Corpus Synthetic Pipeline &bull; Antigravity Design
+    </footer>
+
+    <script>
+        // Load raw text
+        fetch('waterfall_summary.txt')
+            .then(r => r.text())
+            .then(text => {
+                document.getElementById('rawContent').textContent = text;
+            });
+
+        // Simulate telemetry logging
+        const logContainer = document.getElementById('telemetryLog');
+        const simulatedLogs = [
+            "[PHASE 1] Initializing NLP Augmentation...",
+            "[PHASE 1] Modeling PakE dialect patterns...",
+            "[PHASE 2] Starting Ink Synthesis...",
+            "[PHASE 2] Loading Caveat-Regular.ttf...",
+            "[PHASE 2] Applying per-glyph stroke noise (σ=3.5)...",
+            "[PHASE 3] Commencing Environmental Degradation...",
+            "[PHASE 3] Adding Vignette & Lens Distortion...",
+            "[PHASE 3] Simulating uneven room lighting...",
+            "[PIPELINE] Capture complete. Output generated."
+        ];
+
+        let index = 0;
+        function typeLog() {
+            if (index < simulatedLogs.length) {
+                const line = document.createElement('div');
+                line.textContent = `> ${simulatedLogs[index]}`;
+                logContainer.appendChild(line);
+                index++;
+                setTimeout(typeLog, 800 + Math.random() * 1000);
+            }
+        }
+        typeLog();
+    </script>
+</body>
+</html>

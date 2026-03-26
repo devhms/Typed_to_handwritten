@@ -120,16 +120,16 @@ def build_augraphy_pipeline(severity: str = "standard") -> "AugraphyPipeline":
 
     # ── Post Phase ────────────────────────────────────────────────────────
     post_phase = [
-        Geometric(rotate_range=(-2*mult, 2*mult), p=0.8),
+        Geometric(rotate_range=(-1.5*mult, 1.5*mult), p=0.8), # Reduced from 2.0*mult
         OneOf([
             Folding(p=1.0),
             SectionShift(p=1.0),
-        ], p=0.4 * mult),
-        ShadowCast(p=0.5 * mult),
-        LightingGradient(p=0.6 * mult),
-        DirtyDrum(p=0.3 * mult),
-        BadPhotoCopy(p=0.5 * mult),
-        Dithering(p=0.2),
+        ], p=0.3 * mult), # Reduced from 0.4
+        ShadowCast(p=0.4 * mult), # Reduced from 0.5
+        LightingGradient(p=0.5 * mult), # Reduced from 0.6
+        DirtyDrum(p=0.2 * mult), # Reduced from 0.3
+        BadPhotoCopy(p=0.4 * mult),
+        Dithering(p=0.1),
     ]
 
     return AugraphyPipeline(
@@ -163,15 +163,8 @@ def opencv_fallback_degrade(img: np.ndarray, rng: np.random.Generator) -> np.nda
     bleed  = cv2.dilate(dark, kernel, iterations=1)
     out[bleed > 0] = np.clip(out[bleed > 0].astype(int) - 20, 0, 255).astype(np.uint8)
 
-    # 3. BleedThrough — blend flipped / offset copy at low alpha
-    alpha      = float(rng.uniform(*BLEEDTHROUGH_ALPHA))
-    flipped    = cv2.flip(out, 1)
-    dx         = int(rng.integers(*BLEEDTHROUGH_OFFSET_X))
-    dy         = int(rng.integers(*BLEEDTHROUGH_OFFSET_Y))
-    M          = np.float32([[1, 0, dx], [0, 1, dy]])
-    ghost      = cv2.warpAffine(flipped, M, (out.shape[1], out.shape[0]),
-                                borderValue=(255, 255, 255))
-    out        = cv2.addWeighted(out, 1.0, ghost, alpha, 0)
+    # 3. BleedThrough — [DISABLED] for single-page assignment realism
+    pass # Removed to fix ghosting artifact reported in audit
 
     # 4. Markup — random horizontal strikethroughs over ~2% of lines
     h, w       = out.shape[:2]

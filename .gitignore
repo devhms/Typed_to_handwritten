@@ -1,19 +1,15 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Virtual Environment
 .venv/
+env/
 venv/
-ENV/
+.env
 
-# Output files
+# Project Specific
+assignments/
 output/
-
-# Fonts (usually binary, can be excluded if needed, but here we include them OR exclude them)
-# fonts/
-
-# OS generated files
+*.log
 .DS_Store
 Thumbs.db

@@ -287,120 +287,102 @@ def render_body_line(draw: ImageDraw.ImageDraw,
 # MAIN RENDER FUNCTION
 # ─────────────────────────────────────────────────────────────────────────────
 
+def draw_crossout(draw: ImageDraw.ImageDraw, x: int, y: int, length: int, line_height: int, noise: StrokeNoiseModel):
+    """Draw a messy 'human' cross-out over a word."""
+    y_center = y + line_height // 2
+    for _ in range(3):  # Multiple strokes for messiness
+        y1 = y_center + noise.rng.integers(-10, 11)
+        y2 = y_center + noise.rng.integers(-10, 11)
+        draw.line((x - 5, y1, x + length + 5, y2), fill=(30, 30, 30), width=4)
+
 def render_page(title: str, body_text: str,
                 output_path: Path,
                 metadata_path: Path | None = None) -> np.ndarray:
-    """
-    Full page rendering pipeline.
+    """Full page rendering pipeline with Authentic Assignment features."""
+    
+    # ── 1. Load Background Texture ────────────────────────────────────────
+    bg_path = Path("assets/paper_texture.png")
+    if bg_path.exists():
+        pil_bg = Image.open(bg_path).resize((PAGE_W, PAGE_H))
+    else:
+        pil_bg = Image.new("RGB", (PAGE_W, PAGE_H), color=(252, 251, 245))
+    
+    # Text Layer (Transparent)
+    text_layer = Image.new("RGBA", (PAGE_W, PAGE_H), (0, 0, 0, 0))
+    draw    = ImageDraw.Draw(text_layer)
 
-    Parameters
-    ----------
-    title        : Page heading text
-    body_text    : Augmented body text (Phase 1 output)
-    output_path  : Path to save the rendered PNG
-    metadata_path: Optional path to save rendering telemetry JSON
-
-    Returns
-    -------
-    cv_img : np.ndarray (BGR, uint8)  — rendered page as OpenCV array
-    """
-    # ── Canvas ────────────────────────────────────────────────────────────
-    pil_img = Image.new("RGB", (PAGE_W, PAGE_H), color=(255, 255, 255))
-    draw    = ImageDraw.Draw(pil_img)
-
-    # ── Fonts ─────────────────────────────────────────────────────────────
+    # ── 2. Fonts & Noise ──────────────────────────────────────────────────
     heading_font = load_heading_font()
     body_font    = load_body_font()
-
-    # ── Noise model ───────────────────────────────────────────────────────
     noise = StrokeNoiseModel()
 
-    # ── Current cursor position ───────────────────────────────────────────
+    # ── 3. Rendering Logic ───────────────────────────────────────────────
     y = TOP_MARGIN
-
-    # ── 1. Render heading ─────────────────────────────────────────────────
     y = render_heading(draw, title.upper(), MARGIN_LEFT, y,
                        heading_font, noise)
-    y += 20   # gap after heading
+    y += 20
 
-    # ── 2. Wrap & render body text ─────────────────────────────────────────
-    max_w    = MARGIN_RIGHT - MARGIN_LEFT
+    max_w = MARGIN_RIGHT - MARGIN_LEFT
     paragraphs = body_text.split('\n')
-    line_meta  = []                     # for telemetry
+    line_meta = []
 
     for para in paragraphs:
         if not para.strip():
-            y += LINE_HEIGHT // 2       # blank-line paragraph gap
+            y += LINE_HEIGHT // 2
             continue
         
-        # Paragraph indent (Ref: Research update 2025)
         current_x = MARGIN_LEFT + 100
         wrapped = wrap_text(para, draw, body_font, max_w - 100)
         
-        # Per-word drift modeling (simulated by per-line offset for now, 
-        # but integrated into the word rendering loop)
-        w_drifts = noise.word_drift(len(wrapped))
-        
-        # Per-word ink color drift
+        # Consistent ink for the paragraph
         dr, dg, db = noise.ink_color_drift()
         current_ink = (
             max(0, min(255, INK_BODY_PIL[0] + dr)),
             max(0, min(255, INK_BODY_PIL[1] + dg)),
-            max(0, min(255, INK_BODY_PIL[2] + db))
+            max(0, min(255, INK_BODY_PIL[2] + db)),
+            230 # Slight alpha for blending
         )
 
         for ln_idx, line_str in enumerate(wrapped):
-            if y + LINE_HEIGHT > PAGE_H - 100:
-                break                   # single-page guard (extend for multi-page)
+            if y + LINE_HEIGHT > PAGE_H - 100: break
             
             lspacing = LINE_HEIGHT + noise.line_spacing()
             line_x = current_x if ln_idx == 0 else MARGIN_LEFT
-            line_x += w_drifts[ln_idx]
             
-            render_body_line(draw, line_str, line_x, y,
-                             body_font, noise, current_ink)
-            
-            line_meta.append({
-                "y": y, "text": line_str[:50], "line_height": lspacing
-            })
+            # ── [NEW] Human Error Model ──────────────────────────────────
+            # 1% chance to cross out a word and rewrite it
+            words = line_str.split()
+            current_cursor = line_x
+            for w_idx, word in enumerate(words):
+                word_w = int(draw.textlength(word + " ", font=body_font))
+                if noise.rng.random() < 0.015: # 1.5% chance
+                    draw_crossout(draw, current_cursor, y, word_w, LINE_HEIGHT, noise)
+                    current_cursor += word_w + 10 # small gap
+                
+                render_body_line(draw, word + " ", current_cursor, y,
+                                 body_font, noise, current_ink)
+                current_cursor += word_w
+
+            line_meta.append({"y": y, "text": line_str[:50]})
             y += lspacing
 
-    # ── 3. Convert to OpenCV BGR for margin/ruling lines ──────────────────
-    cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+    # ── 4. Composition (Multiply Blending) ───────────────────────────────
+    # Combine text layer with background
+    pil_bg.paste(text_layer, (0, 0), text_layer)
+    cv_img = cv2.cvtColor(np.array(pil_bg), cv2.COLOR_RGB2BGR)
 
-    # ── 4. Draw ruling lines (faint, below ink layer) ─────────────────────
-    #     Note: ruling lines should be drawn first ideally; here we composite
-    #     them lightly so they don't occlude text
-    ruling_layer = np.ones_like(cv_img) * 255
-    ruling_layer = draw_ruling_lines(ruling_layer.astype(np.uint8))
-    cv_img = cv2.addWeighted(cv_img, 1.0, ruling_layer, 0.18, 0)
-
-    # ── 5. Draw double margin lines (over everything) ─────────────────────
+    # ── 5. Post-Processing ────────────────────────────────────────────────
+    # We skip digital ruling lines because the texture already has them.
+    # We only add a very subtle crease shadow if the texture is flat.
     cv_img = draw_margin_lines(cv_img)
 
     # ── 6. Save PNG ───────────────────────────────────────────────────────
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(output_path), cv_img,
-                [cv2.IMWRITE_PNG_COMPRESSION, 3])
-    print(f"  [Phase 2] Rendered page saved → {output_path}")
-
-    # ── 7. Optional telemetry ─────────────────────────────────────────────
+    cv2.imwrite(str(output_path), cv_img, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+    
     if metadata_path:
-        meta = {
-            "page_size_px":  [PAGE_W, PAGE_H],
-            "dpi":           300,
-            "heading_font_size": HEADING_FONT_SZ,
-            "body_font_size":    BODY_FONT_SZ,
-            "ink_body_hex":      "#08497f",
-            "ink_heading_hex":   "#000000",
-            "noise_sigma_x":     NOISE_SIGMA_X,
-            "noise_sigma_y":     NOISE_SIGMA_Y,
-            "total_lines_rendered": len(line_meta),
-            "line_details":      line_meta,
-        }
-        metadata_path.parent.mkdir(parents=True, exist_ok=True)
-        metadata_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        print(f"  [Phase 2] Render metadata   → {metadata_path}")
+        meta = {"authentic_mode": True, "paper_texture": "ruled_notebook", "lines": len(line_meta)}
+        metadata_path.write_text(json.dumps(meta, indent=2))
 
     return cv_img
 

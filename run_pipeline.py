@@ -140,12 +140,17 @@ def main():
     # ─────────────────────────────────────────────────────────────────────
     from phase3_degradation import degrade_image
 
+    severity = "standard"
+    if "--mild" in args: severity = "mild"
+    if "--heavy" in args: severity = "heavy"
+
     (degraded, t3) = run_phase(
         "Phase 3 — Environmental Degradation (Augraphy Pipeline)",
         degrade_image,
         input_path    = Path("output/phase2/rendered_page.png"),
         output_path   = Path("output/phase3/degraded_page.png"),
         metadata_path = Path("output/phase3/degradation_metadata.json"),
+        severity      = severity
     )
     timings["phase3"] = t3
 

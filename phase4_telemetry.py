@@ -58,9 +58,17 @@ FATIGUE_ONSET_CHARS  = 300        # chars before fatigue starts
 FATIGUE_RATE         = 0.0004     # seconds added per char after onset
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# DATA STRUCTURES
-# ─────────────────────────────────────────────────────────────────────────────
+# Psycholinguistic Digraphs (th, he, in, er, an) — Ref: Research 2025
+COMMON_DIGRAPHS = {"th", "he", "in", "er", "an", "re", "on", "at", "en"}
+DIGRAPH_SPEEDUP = 0.25      # 25% IKI reduction for common digraphs
+
+# Behavourial models
+THINK_PAUSE_PROB    = 0.02       # 2% chance before words > 8 chars
+SAVING_CYCLE_CHARS  = 150        # chars between periodic 'ctrl+s' simulations
+DWELL_MS_MU         = 85         # mean dwell time (ms)
+DWELL_MS_SIGMA      = 12         # jitter (ms)
+
+# ── DATA STRUCTURES ─────────────────────────────────────────────────────────────
 
 @dataclass
 class KeyEvent:
@@ -68,9 +76,10 @@ class KeyEvent:
     seq_id:         int
     char:           str
     key_code:       str
-    event_type:     str            # 'press' | 'backspace' | 'correction_retype'
+    event_type:     str            # 'press' | 'backspace' | 'correction_retype' | 'hotkey'
     timestamp_ms:   float          # wall-clock ms since session start
     iki_ms:         float          # inter-key interval from previous event (ms)
+    dwell_ms:       float          # duration key was held down (ms)
     wpm_at_event:   float
     is_correction:  bool
     word_position:  int            # character index within current word
@@ -123,6 +132,8 @@ class IKIGenerator:
       - Word/punctuation boundary pauses
       - Fatigue drift
       - Burst-typing episodes (transient WPM spikes)
+      - Digraph speedup (Ref: Psycholinguistic 2025)
+      - Think-pauses (Ref: Cognitive 2024)
     """
 
     def __init__(self, rng: random.Random):
@@ -131,12 +142,17 @@ class IKIGenerator:
         self._burst_mode = False
         self._burst_rem  = 0
 
-    def next_iki(self, char: str, at_word_boundary: bool,
+    def next_iki(self, char: str, last_char: str, 
+                 at_word_boundary: bool,
                  at_sentence_end: bool, at_comma: bool) -> float:
         """Return IKI (seconds) for the next character."""
         self._char_count += 1
 
-        # ── Burst typing (spontaneous speed-up for ~5–15 chars) ──────────
+        # ── Digraph Speedup ───────────────────────────────────────────────
+        digraph = (last_char + char).lower()
+        is_digraph = (digraph in COMMON_DIGRAPHS)
+
+        # ── Burst typing ──────────────────────────────────────────────────
         if self._burst_mode:
             wpm = min(WPM_MAX, sample_wpm(self.rng) * 1.3)
             self._burst_rem -= 1
@@ -144,7 +160,7 @@ class IKIGenerator:
                 self._burst_mode = False
         else:
             wpm = sample_wpm(self.rng)
-            if self.rng.random() < 0.04:           # 4% chance to enter burst
+            if self.rng.random() < 0.04:
                 self._burst_mode = True
                 self._burst_rem  = self.rng.randint(5, 15)
 
@@ -154,6 +170,9 @@ class IKIGenerator:
         jitter   = self.rng.gauss(0, mean_iki * 0.15)
         iki      = max(0.015, mean_iki + jitter)
 
+        if is_digraph:
+            iki *= (1.0 - DIGRAPH_SPEEDUP)
+
         # ── Boundary pauses ───────────────────────────────────────────────
         if at_sentence_end:
             iki += SENTENCE_PAUSE_SEC + self.rng.gauss(0, 0.06)
@@ -161,12 +180,20 @@ class IKIGenerator:
             iki += COMMA_PAUSE_SEC
         elif at_word_boundary:
             iki *= WORD_PAUSE_FACTOR
+            # Think pause
+            if self.rng.random() < THINK_PAUSE_PROB:
+                 iki += self.rng.uniform(0.4, 1.2)
 
         # ── Fatigue drift ─────────────────────────────────────────────────
         if self._char_count > FATIGUE_ONSET_CHARS:
             iki += FATIGUE_RATE * (self._char_count - FATIGUE_ONSET_CHARS)
 
         return iki
+
+    def sample_dwell(self) -> float:
+        """Sample key dwell time (ms)."""
+        return self.rng.gauss(DWELL_MS_MU, DWELL_MS_SIGMA)
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -198,12 +225,17 @@ def press_key(char: str, headless: bool = HEADLESS) -> None:
     elif char == '\t':
         pyautogui.press('tab')
     elif char.isupper():
-        pyautogui.keyDown('shift')
-        time.sleep(SHIFT_DWELL_MS / 1000.0)
-        pyautogui.press(char.lower())
-        pyautogui.keyUp('shift')
+        with pyautogui.hold('shift'):
+            pyautogui.press(char.lower())
     else:
         pyautogui.press(char)
+
+
+def save_hotkey(headless: bool = HEADLESS) -> None:
+    """Simulate Ctrl+S periodic save."""
+    if headless or not PYAUTOGUI_AVAILABLE:
+         return
+    pyautogui.hotkey('ctrl', 's')
 
 
 def press_backspace(n: int = 1, headless: bool = HEADLESS) -> None:
@@ -263,9 +295,30 @@ def simulate_transcription(text: str,
 
     chars = list(text)
     i     = 0
+    last_ch = ""
 
     while i < len(chars):
         ch = chars[i]
+        
+        # ── Periodic Save simulation ──────────────────────────────────────
+        if session.total_chars_typed > 0 and session.total_chars_typed % SAVING_CYCLE_CHARS == 0:
+            save_hotkey(headless)
+            session.events.append(KeyEvent(
+                seq_id        = seq_id,
+                char          = "CTRL+S",
+                key_code      = "s",
+                event_type    = "hotkey",
+                timestamp_ms  = timestamp_ms,
+                iki_ms        = 250.0, 
+                dwell_ms      = 120.0,
+                wpm_at_event  = 0.0,
+                is_correction = False,
+                word_position = word_pos,
+                line_number   = line_num,
+                word_number   = word_num,
+            ))
+            seq_id += 1
+            timestamp_ms += 300.0
 
         # ── Detect boundary context ───────────────────────────────────────
         at_sentence_end  = (i > 0 and chars[i - 1] in '.!?')
@@ -279,13 +332,15 @@ def simulate_transcription(text: str,
             line_num += 1
 
         # ── Compute IKI + sleep ───────────────────────────────────────────
-        iki      = iki_gen.next_iki(ch, at_word_boundary,
+        iki      = iki_gen.next_iki(ch, last_ch, at_word_boundary,
                                      at_sentence_end, at_comma)
         iki_ms   = iki * 1000.0
         timestamp_ms += iki_ms
 
         if not headless:
             time.sleep(iki)
+
+        dwell_ms = iki_gen.sample_dwell()
 
         # ── Correction event (10% probability) ───────────────────────────
         if should_make_correction(rng) and ch.isalpha():
@@ -301,6 +356,7 @@ def simulate_transcription(text: str,
                 event_type    = 'press',
                 timestamp_ms  = timestamp_ms,
                 iki_ms        = wrong_iki * 1000,
+                dwell_ms      = dwell_ms,
                 wpm_at_event  = sample_wpm(rng),
                 is_correction = False,
                 word_position = word_pos,
@@ -325,6 +381,7 @@ def simulate_transcription(text: str,
                 event_type    = 'backspace',
                 timestamp_ms  = timestamp_ms,
                 iki_ms        = delay * 1000,
+                dwell_ms      = 50.0,
                 wpm_at_event  = sample_wpm(rng),
                 is_correction = True,
                 word_position = word_pos,
@@ -349,6 +406,7 @@ def simulate_transcription(text: str,
             event_type    = event_type,
             timestamp_ms  = timestamp_ms,
             iki_ms        = iki_ms,
+            dwell_ms      = dwell_ms,
             wpm_at_event  = round(sample_wpm(rng), 1),
             is_correction = (event_type == 'correction_retype'),
             word_position = word_pos,
@@ -360,22 +418,33 @@ def simulate_transcription(text: str,
         seq_id  += 1
         word_pos += 1
         words_typed.append(ch)
+        last_ch = ch
         i += 1
 
     # ── Session summary ───────────────────────────────────────────────────
     session.session_duration_sec = time.monotonic() - wall_start
 
-    # ── Persist telemetry log ─────────────────────────────────────────────
+    # ── Persist telemetry log (JSON & CSV) ───────────────────────────────
     output_dir.mkdir(parents=True, exist_ok=True)
 
     log_path  = output_dir / f"{session_id}_telemetry.json"
+    csv_path  = output_dir / f"{session_id}_telemetry.csv"
     doc_path  = output_dir / f"{session_id}_typed_document.txt"
 
-    # Serialise KeyEvent objects
+    # Serialise JSON
     serial = asdict(session)
     serial['events'] = [asdict(e) for e in session.events]
     log_path.write_text(json.dumps(serial, indent=2, ensure_ascii=False),
                         encoding="utf-8")
+    
+    # Export CSV (Ref: Forensic ingestion standard 2025)
+    import csv as csv_lib
+    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv_lib.DictWriter(f, fieldnames=KeyEvent.__annotations__.keys())
+        writer.writeheader()
+        for e in session.events:
+            writer.writerow(asdict(e))
+
     doc_path.write_text(''.join(words_typed), encoding="utf-8")
 
     print(f"  [Phase 4] Telemetry log     → {log_path}")

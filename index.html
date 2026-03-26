@@ -234,25 +234,30 @@
     </footer>
 
     <script>
-        // Load raw text
+        // Load raw & augmented text
         fetch('waterfall_summary.txt')
             .then(r => r.text())
-            .then(text => {
-                document.getElementById('rawContent').textContent = text;
+            .then(text => document.getElementById('rawContent').textContent = text);
+
+        // Load telemetry stats
+        fetch('output/phase4/pake_ocr_ses_001_telemetry.json')
+            .then(r => r.json())
+            .then(data => {
+                console.log("Telemetry loaded:", data);
             });
 
-        // Simulate telemetry logging
+        // Simulate telemetry logging with research highlights
         const logContainer = document.getElementById('telemetryLog');
         const simulatedLogs = [
             "[PHASE 1] Initializing NLP Augmentation...",
-            "[PHASE 1] Modeling PakE dialect patterns...",
-            "[PHASE 2] Starting Ink Synthesis...",
-            "[PHASE 2] Loading Caveat-Regular.ttf...",
-            "[PHASE 2] Applying per-glyph stroke noise (σ=3.5)...",
-            "[PHASE 3] Commencing Environmental Degradation...",
-            "[PHASE 3] Adding Vignette & Lens Distortion...",
-            "[PHASE 3] Simulating uneven room lighting...",
-            "[PIPELINE] Capture complete. Output generated."
+            "[PHASE 1] Modeling PakE dialect: Stative-Progressive & Urduization.",
+            "[PHASE 2] Starting Ink Synthesis with Brownian Drift...",
+            "[PHASE 2] Physics: Per-character pressure (opacity) & color saturation drift.",
+            "[PHASE 3] Environmental Degradation: Augraphy 8.2 Engaged.",
+            "[PHASE 3] Stochastic selection: ShadowCast, LightingGradient, Folding.",
+            "[PHASE 4] Forensic Telemetry: Capturing IKI, Dwell-ms, Digraph speedups.",
+            "[PHASE 4] Exporting flat CSV for machine learning ingestion.",
+            "[PIPELINE] Capture complete. High-fidelity synthetic dataset generated."
         ];
 
         let index = 0;
@@ -262,7 +267,7 @@
                 line.textContent = `> ${simulatedLogs[index]}`;
                 logContainer.appendChild(line);
                 index++;
-                setTimeout(typeLog, 800 + Math.random() * 1000);
+                setTimeout(typeLog, 600 + Math.random() * 800);
             }
         }
         typeLog();

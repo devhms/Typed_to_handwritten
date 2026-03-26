@@ -26,14 +26,15 @@ random.seed(42)
 # 1. LEXICAL RESOURCES
 # ─────────────────────────────────────────────────────────────────────────────
 
-# PakE transitional / discourse markers (Ref [3], [4])
+# PakE transitional / discourse markers (Ref [3], [4], [2023 update])
 DISCOURSE_MARKERS = [
     "Because,", "Hence,", "Likewise,", "Moreover,", "Kindly note that",
     "It is worth mentioning that", "As such,", "Thereby,", "Henceforth,",
-    "In this regard,", "For the same,", "Accordingly,",
+    "In this regard,", "For the same,", "Accordingly,", 
+    "In the light of the above,", "Furthermore,", "As a matter of fact,"
 ]
 
-# Uncountable → countable pluralization (Ref [5], [6])
+# Uncountable → countable pluralization (Ref [5], [6], [2023 update])
 UNCOUNTABLE_PLURALS = {
     r"\binformation\b": "informations",
     r"\bsoftware\b":    "softwares",
@@ -47,6 +48,22 @@ UNCOUNTABLE_PLURALS = {
     r"\bstaff\b":       "staffs",
     r"\btraffic\b":     "traffics",
     r"\bluggage\b":     "luggages",
+    r"\bmachinery\b":   "machineries",
+    r"\btraining\b":    "trainings",
+    r"\bmanagement\b":  "managements",
+}
+
+# Urdu lexical borrowings / code-switching (Ref: Jadoon 2023, Asgher 2023)
+URDU_BORROWINGS = {
+    r"\bmeeting\b":        "ijlas",
+    r"\bproblem\b":        "masla",
+    r"\bgovernment\b":     "sarkar",
+    r"\bthank you\b":      "JazakAllah",
+    r"\bgoodbye\b":        "Allah Hafiz",
+    r"\bpeople\b":         "awam",
+    r"\bworker\b":         "mulazim",
+    r"\binstitution\b":    "idara",
+    r"\bdecisions\b":      "faislas",
 }
 
 # Prepositional verb variations (Ref [5])
@@ -124,12 +141,44 @@ def inject_discourse_markers(sentences: list[str]) -> list[str]:
 def pluralize_uncountables(text: str) -> str:
     """Replace uncountable nouns with their PakE pluralized forms (Ref [5], [6])."""
     for pattern, replacement in UNCOUNTABLE_PLURALS.items():
-        # Only replace ~60% of occurrences to avoid full saturation
         def _replace(m, rep=replacement):
-            return rep if random.random() < 0.60 else m.group(0)
+            return rep if random.random() < 0.65 else m.group(0)
         text = re.sub(pattern, _replace, text, flags=re.IGNORECASE)
     return text
 
+def inject_urdu_lexis(text: str) -> str:
+    """Inject Urdu borrowings / Urduization (Ref: Jadoon 2023)."""
+    for pattern, replacement in URDU_BORROWINGS.items():
+        if random.random() < 0.15: # 15% code-switch rate
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE, count=1)
+    return text
+
+def apply_stative_progressive(text: str) -> str:
+    """Transform stative verbs into PakE progressive aspect (Ref: Rahman 2022)."""
+    stative_map = {
+        r"\bi know\b":   "I am knowing",
+        r"\bi see\b":    "I am seeing",
+        r"\bi hear\b":   "I am hearing",
+        r"\bhe knows\b": "he is knowing",
+        r"\bit costs\b": "it is costing",
+        r"\bwe want\b":  "we are wanting",
+        r"\byou want\b": "you are wanting",
+        r"\bi understand\b": "I am understanding"
+    }
+    for pattern, replacement in stative_map.items():
+        if random.random() < 0.30:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
+
+def handle_articles(text: str) -> str:
+    """Article omission / addition (Ref: Ahmar & Mahboob 2004)."""
+    # Omission in prepositional phrases
+    text = re.sub(r"\bin the office\b", "in office", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bto the university\b", "to university", text, flags=re.IGNORECASE)
+    # Addition
+    if random.random() < 0.20:
+        text = re.sub(r"\bPakistan\b", "the Pakistan", text)
+    return text
 
 def add_prepositional_verbs(text: str) -> str:
     """Inject extra prepositions to transitive verbs (Ref [5])."""
@@ -252,11 +301,19 @@ def augment(raw_text: str) -> tuple[str, dict]:
 
     # ── Step 2: Syntactic structural variations ───────────────────────────
     text = pluralize_uncountables(text)
+    text = apply_stative_progressive(text)
+    text = handle_articles(text)
+    text = inject_urdu_lexis(text)
     text = add_prepositional_verbs(text)
     text = inject_pake_hedges(text)
 
     # ── Step 3: Verb-agreement variation (14% rate) ───────────────────────
     text = inject_verb_agreement_variations(text, rate=VERB_AGREEMENT_RATE)
+
+    # ── Step 4: Hyphenated Neologisms (Ref: Buriro 2023) ──────────────────
+    if random.random() < 0.25:
+        text = re.sub(r"\bproject\b", "mega-project", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bpeople\b", "anti-people", text, flags=re.IGNORECASE)
 
     # ── Metadata ──────────────────────────────────────────────────────────
     meta = compute_augmentation_stats(raw_text, text)

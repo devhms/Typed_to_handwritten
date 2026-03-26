@@ -29,14 +29,15 @@ try:
     from augraphy import (
         AugraphyPipeline,
         # Paper Phase
-        TextureGenerator,
+        TextureGenerator, ColorPaper, PaperFactory, PageBorder,
         # Ink Phase
-        InkBleed,
-        BleedThrough,
-        Markup,
+        InkBleed, BleedThrough, Markup, InkMottling, Letterpress,
         # Post Phase
-        Geometric,
-        BadPhotoCopy,
+        Geometric, BadPhotoCopy, Dithering, Folding, SectionShift,
+        ShadowCast, LightingGradient, DirtyDrum,
+        # Stochastic selection
+        OneOf,
+        LowInkRandomLines, LowInkPeriodicLines,
     )
     AUGRAPHY_AVAILABLE = True
 except ImportError:
@@ -81,73 +82,54 @@ BADPHOTOCOPY_THRESH     = (160, 240)    # wider threshold range
 # AUGRAPHY PIPELINE BUILDER
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_augraphy_pipeline() -> "AugraphyPipeline":
+def build_augraphy_pipeline(severity: str = "standard") -> "AugraphyPipeline":
     """
-    Construct the three-phase Augraphy degradation pipeline.
-
-    Paper Phase  : TextureGenerator  — fibrous 80 gsm paper grain
-    Ink Phase    : InkBleed          — capillary spread
-                   BleedThrough      — rear-page ghost text
-                   Markup            — 2% strikethrough coverage
-    Post Phase   : Geometric         — 1–2° perspective warp
-                   BadPhotoCopy      — mobile scanner artefacts + uneven lighting
-
-    Returns
-    -------
-    AugraphyPipeline
+    Construct the three-phase Augraphy degradation pipeline with severity presets.
+    
+    severity: "mild", "standard", or "heavy"
     """
+    
+    if severity == "mild":
+        mult = 0.5
+    elif severity == "heavy":
+        mult = 2.0
+    else:
+        mult = 1.0
 
     # ── Paper Phase ───────────────────────────────────────────────────────
     paper_phase = [
-        TextureGenerator(
-            texture_type=PAPER_TEXTURE_TYPE,
-            numba_jit=False,             # disable JIT for portability
-        ),
+        OneOf([
+            TextureGenerator(texture_type="normal", numba_jit=False),
+            PaperFactory(p=0.5),
+        ]),
+        ColorPaper(hue_range=(0, 10), saturation_range=(0, 10), p=0.3),
+        PageBorder(p=0.4),
     ]
 
     # ── Ink Phase ─────────────────────────────────────────────────────────
     ink_phase = [
-        InkBleed(
-            intensity_range=INKBLEED_SEVERITY,
-            kernel_size=INKBLEED_KERNEL_SIZE,
-            severity=INKBLEED_SEVERITY,
-        ),
-        BleedThrough(
-            intensity_range=BLEEDTHROUGH_ALPHA,
-            color_range=(32, 32, 32),    # near-black bleed (simulates ink)
-            ksize=(9, 9),
-            sigmaX=1,
-            alpha=BLEEDTHROUGH_ALPHA,
-            offsets=(*BLEEDTHROUGH_OFFSET_X, *BLEEDTHROUGH_OFFSET_Y),
-        ),
-        Markup(
-            num_lines_range=(1, 3),
-            markup_type=MARKUP_TYPE,
-            markup_color=(30, 30, 30),   # dark ink strikethrough
-            single_word_mode=False,
-            p=MARKUP_COVERAGE_RATIO,     # applied to ~2% of text regions
-        ),
+        InkBleed(intensity_range=(0.2*mult, 0.4*mult), p=0.7),
+        InkMottling(p=0.3),
+        Letterpress(p=0.2),
+        OneOf([
+            LowInkRandomLines(p=1.0),
+            LowInkPeriodicLines(p=1.0),
+        ], p=0.3 * mult),
+        Markup(num_lines_range=(1, int(3*mult)), p=0.02 * mult),
     ]
 
     # ── Post Phase ────────────────────────────────────────────────────────
     post_phase = [
-        Geometric(
-            rotate_range=GEOMETRIC_ROTATE_RANGE,
-            padding=20,
-        ),
-        BadPhotoCopy(
-            noise_type=-1,              # random noise type per call
-            noise_side="random",
-            noise_iteration=(1, 2),
-            noise_size=(1, 2),
-            noise_value=(BADPHOTOCOPY_NOISE[0], BADPHOTOCOPY_NOISE[1]),
-            noise_sparsity=(0.3, 0.6),
-            noise_concentration=(0.1, 0.5),
-            blur_noise=True,
-            blur_noise_kernel=(3, 3),
-            wave_pattern=False,
-            edge_effect=True,
-        ),
+        Geometric(rotate_range=(-2*mult, 2*mult), p=0.8),
+        OneOf([
+            Folding(p=1.0),
+            SectionShift(p=1.0),
+        ], p=0.4 * mult),
+        ShadowCast(p=0.5 * mult),
+        LightingGradient(p=0.6 * mult),
+        DirtyDrum(p=0.3 * mult),
+        BadPhotoCopy(p=0.5 * mult),
+        Dithering(p=0.2),
     ]
 
     return AugraphyPipeline(
@@ -155,7 +137,6 @@ def build_augraphy_pipeline() -> "AugraphyPipeline":
         paper_phase=paper_phase,
         post_phase=post_phase,
         save_outputs=False,
-        log=False,
     )
 
 
@@ -234,7 +215,8 @@ def opencv_fallback_degrade(img: np.ndarray, rng: np.random.Generator) -> np.nda
 # ─────────────────────────────────────────────────────────────────────────────
 
 def degrade_image(input_path: Path, output_path: Path,
-                  metadata_path: Path | None = None) -> np.ndarray:
+                  metadata_path: Path | None = None,
+                  severity: str = "standard") -> np.ndarray:
     """
     Apply the full degradation pipeline to a rendered handwriting image.
 
@@ -243,6 +225,7 @@ def degrade_image(input_path: Path, output_path: Path,
     input_path    : Path to Phase 2 rendered PNG
     output_path   : Destination for degraded image
     metadata_path : Optional JSON for degradation telemetry
+    severity      : "mild", "standard", or "heavy"
 
     Returns
     -------
@@ -257,11 +240,11 @@ def degrade_image(input_path: Path, output_path: Path,
 
     # ── Apply pipeline ────────────────────────────────────────────────────
     if AUGRAPHY_AVAILABLE:
-        pipeline  = build_augraphy_pipeline()
+        pipeline  = build_augraphy_pipeline(severity=severity)
         # Augraphy expects a numpy uint8 BGR image
         data      = pipeline(img)
         degraded  = data["output"]
-        method    = "augraphy"
+        method    = f"augraphy_{severity}"
     else:
         degraded  = opencv_fallback_degrade(img, rng)
         method    = "opencv_fallback"

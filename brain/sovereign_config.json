@@ -1,0 +1,11 @@
+{
+  "jitter": 0.03202254234586495,
+  "slant": 0.11758984453951057,
+  "hand_waviness": 0.014359109321774234,
+  "waviness_freq": 11.599785467453813,
+  "ink_depletion_rate": 0.0001751349372562745,
+  "ink_refill_rate": 0.001128594154738672,
+  "fiber_skip_sens": 0.26285103110836966,
+  "thickness_base": 4.344717000064296,
+  "alpha_base": 215
+}

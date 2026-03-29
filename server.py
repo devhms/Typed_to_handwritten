@@ -5,15 +5,13 @@ import os
 import shutil
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
-import phase2_ink_synthesis
-import phase3_degradation
+from notebook_renderer import render_notebook_page
 
 PORT = 8000
 
 class SyncBridgeHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         """Serve static files like index.html, assets, fonts."""
-        # Simple routing for SPA-like feel
         if self.path == "/" or self.path == "":
             self.path = "/index.html"
         return super().do_GET()
@@ -27,33 +25,21 @@ class SyncBridgeHandler(http.server.SimpleHTTPRequestHandler):
             
             text = data.get('text', '')
             title = data.get('title', 'Assignment')
-            fast_mode = data.get('fast', True) # Skip Augraphy for real-time smoothness
             
             try:
-                # 1. Write to temp text file for consistency
-                input_file = Path("my_assignment.txt")
-                input_file.write_text(text, encoding="utf-8")
+                # Extract title from first line, body from rest
+                lines = text.strip().split('\n')
+                title_line = lines[0].strip() if lines else title
+                body = '\n'.join(lines[1:]).strip() if len(lines) > 1 else text
                 
-                # 2. Render Page (Raw Handwriting)
-                raw_path = Path("assignments/v_sync_raw.png")
-                phase2_ink_synthesis.render_page(
-                    title=title,
-                    body_text=text,
-                    output_path=raw_path
+                final_path = Path("assignments/notebook_output.png")
+                render_notebook_page(
+                    body_text=body,
+                    output_path=str(final_path),
+                    title=title_line,
+                    seed=42,
                 )
                 
-                final_path = raw_path
-                # 3. Apply Quality Degradation (Optional)
-                if not fast_mode:
-                    final_photo_path = Path("assignments/v_sync_photo.png")
-                    phase3_degradation.degrade_image(
-                        input_path=raw_path,
-                        output_path=final_photo_path,
-                        severity="medium"
-                    )
-                    final_path = final_photo_path
-                
-                # Success response with timestamp to bust cache
                 response = {
                     "success": True,
                     "image_url": f"/{final_path.as_posix()}?t={os.path.getmtime(final_path)}"
@@ -61,6 +47,8 @@ class SyncBridgeHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(response)
                 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 self._send_json({"success": False, "error": str(e)}, status=500)
         else:
             self.send_error(404, "Not Found")

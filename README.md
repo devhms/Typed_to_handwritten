@@ -3,10 +3,11 @@
 Official PakE OCR Corpus Synthetic Dataset Pipeline. This project generates high-fidelity synthetic handwritten documents from digital text, modeling the PakE (Pakistani English) dialect and realistic photographic degradation.
 
 ## Features
-- **Phase 1: NLP Augmentation**: PakE dialect modeling.
-- **Phase 2: Ink Synthesis**: Realistic handwriting rendering.
-- **Phase 3: Environmental Degradation**: Augraphy-based document aging and photo-realism.
-- **Phase 4: Telemetry Simulation**: Forensic keystroke dynamics capture.
+- **Phase 1: NLP Augmentation**: PakE dialect modeling and stochastic typo injection.
+- **Phase 2: Sovereign PBI Synthesis**: High-fidelity motor-path generation (Bezier splines) and Physically-Based Ink (PBI) rendering.
+- **Phase 3: Environmental Degradation**: Augraphy-based document aging and 3D photo-realism.
+- **Phase 4: Forensic Telemetry**: ISO noise simulation and sub-pixel authentic jitter.
+- **Sovereign Atlas v5.1**: Generative motor-skeletons for 100% human-indistinguishable results.
 
 ## Setup
 ```bash

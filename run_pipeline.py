@@ -117,21 +117,21 @@ def main():
     )
 
     # ─────────────────────────────────────────────────────────────────────
-    # PHASE 2 — Digital Ink Synthesis
+    # PHASE 2 — Notebook Renderer (Clean Handwriting)
     # ─────────────────────────────────────────────────────────────────────
-    from phase2_ink_synthesis import render_page
+    from notebook_renderer import render_notebook_page
 
-    (cv_img, t2) = run_phase(
-        "Phase 2 — Digital Ink Synthesis (Handwriting Rendering)",
-        render_page,
-        title         = "PakE OCR Corpus — Synthetic Document",
+    (rendered_path, t2) = run_phase(
+        "Phase 2 -- Notebook Renderer (Clean Handwriting)",
+        render_notebook_page,
         body_text     = augmented_text,
-        output_path   = Path("output/phase2/rendered_page.png"),
-        metadata_path = Path("output/phase2/render_metadata.json"),
+        output_path   = str(Path("output/phase2/rendered_page.png")),
+        title         = "PakE OCR Corpus -- Document",
+        seed          = 42,
     )
     timings["phase2"] = t2
 
-    if cv_img is None:
+    if rendered_path is None:
         print("[FATAL] Phase 2 failed. Aborting pipeline.")
         sys.exit(1)
 

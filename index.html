@@ -7,444 +7,425 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- UI-UX PRO MAX: Core Infrastructure -->
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
     <style>
         :root {
-            /* UI-UX PRO MAX: Dark Mode OLED Palette */
-            --brand: #2563eb;
-            --brand-glow: rgba(37, 99, 235, 0.4);
-            --cta: #f97316;
-            --bg: #030711; /* Deepest black/navy */
-            --surface: rgba(15, 23, 42, 0.8);
-            --border: rgba(37, 99, 235, 0.2);
+            --brand: #3b82f6;
+            --brand-glow: rgba(59, 130, 246, 0.5);
+            --cta: #f59e0b;
+            --bg: #020617; 
+            --surface: rgba(15, 23, 42, 0.6);
+            --border: rgba(255, 255, 255, 0.08);
             --text-main: #f8fafc;
-            --text-dim: #64748b;
+            --text-dim: #94a3b8;
             --danger: #ef4444;
             --success: #10b981;
-            --sidebar-w: 320px;
+            --card-radius: 16px;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; cursor: default; }
+        
         body {
-            font-family: 'Fira Sans', sans-serif;
+            font-family: 'Outfit', sans-serif;
             background: var(--bg);
             background-image: 
-                linear-gradient(rgba(37, 99, 235, 0.05) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(37, 99, 235, 0.05) 1px, transparent 1px);
-            background-size: 40px 40px;
+                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(245, 158, 11, 0.1) 0px, transparent 50%);
             color: var(--text-main);
             min-height: 100vh;
             display: flex;
-            overflow-x: hidden;
+            justify-content: center;
+            padding: 2rem;
+            overflow: hidden;
         }
 
         /* ─────────────────────────────────────────────────────────────────────────────
-           UI/UX PRO MAX: HUD INFRASTRUCTURE
+           UI/UX PRO MAX: BENTO ARCHITECTURE
            ───────────────────────────────────────────────────────────────────────────── */
-        aside.controls {
-            width: var(--sidebar-w);
+        .bento-container {
+            display: grid;
+            grid-template-columns: 350px 1fr 380px;
+            grid-template-rows: auto 1fr auto;
+            gap: 1.5rem;
+            width: 100%;
+            max-width: 1800px;
+        }
+
+        .bento-card {
             background: var(--surface);
             backdrop-filter: blur(24px);
-            border-right: 1px solid var(--border);
-            padding: 2.5rem 1.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 2.5rem;
-            height: 100vh;
-            position: sticky; top: 0;
-            box-shadow: 20px 0 50px rgba(0,0,0,0.5);
-        }
-
-        .logo-group {
-            border-bottom: 2px solid var(--brand);
-            padding-bottom: 1rem;
-            margin-bottom: 1rem;
-        }
-
-        .logo {
-            font-family: 'Fira Code', monospace;
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: #fff;
-            letter-spacing: -1px;
-            text-shadow: 0 0 10px var(--brand-glow);
-        }
-
-        .version {
-            font-family: 'Fira Code', monospace;
-            font-size: 0.7rem;
-            background: var(--brand);
-            color: #fff;
-            padding: 2px 6px;
-            border-radius: 4px;
-            margin-left: 8px;
-            vertical-align: middle;
-        }
-
-        .section-label {
-            font-family: 'Fira Code', monospace;
-            font-size: 0.7rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            color: var(--brand);
-            letter-spacing: 0.1em;
-            margin-bottom: 1.25rem;
-            display: block;
-        }
-
-        .slider-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .slider-header {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.85rem;
-            font-weight: 500;
-        }
-
-        .slider-val { font-family: 'Fira Code', monospace; color: var(--brand); font-weight: 700; }
-
-        input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 100%; height: 2px;
-            background: var(--border);
-            outline: none;
-        }
-
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 12px; height: 12px;
-            background: var(--brand);
-            border-radius: 0; /* Engineering look: square/crosshair */
-            cursor: pointer;
-            box-shadow: 0 0 15px var(--brand-glow);
-            border: 2px solid #fff;
-        }
-
-        .style-btn {
-            background: transparent;
             border: 1px solid var(--border);
-            padding: 0.85rem;
-            border-radius: 4px;
-            font-family: 'Fira Code', monospace;
-            font-size: 0.8rem;
-            color: var(--text-dim);
-            cursor: pointer;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            text-align: center;
+            border-radius: var(--card-radius);
+            padding: 1.75rem;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            transition: border-color 0.3s;
         }
 
-        .style-btn.active {
-            background: var(--brand);
-            border-color: var(--brand);
-            color: #fff;
+        .bento-card:hover { border-color: rgba(59, 130, 246, 0.3); }
+
+        .bento-card::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--brand), transparent);
+            opacity: 0.2;
+        }
+
+        /* Header Card */
+        header.bento-card {
+            grid-column: 1 / span 3;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+        }
+
+        /* ─────────────────────────────────────────────────────────────────────────────
+           CONFIG HUB (LEFT)
+           ───────────────────────────────────────────────────────────────────────────── */
+        .config-hub { grid-row: 2 / span 2; gap: 1.5rem; display: flex; flex-direction: column; }
+
+        .profile-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .profile-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            padding: 1rem;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .profile-card:hover { background: rgba(59, 130, 246, 0.05); transform: translateY(-2px); }
+        .profile-card.active { 
+            background: var(--brand); border-color: var(--brand); color: #fff;
             box-shadow: 0 0 20px var(--brand-glow);
         }
 
+        .profile-card span { display: block; font-size: 0.7rem; opacity: 0.6; margin-top: 4px; }
+
+        /* Expert Toggle */
+        .expert-toggle-wrap {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border);
+        }
+
+        .switch {
+            position: relative; display: inline-block; width: 44px; height: 22px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: var(--border); transition: .4s; border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
+            background-color: white; transition: .4s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--brand); }
+        input:checked + .slider:before { transform: translateX(22px); }
+
+        .expert-panel {
+            display: none; height: 0; overflow: hidden; transition: all 0.5s ease;
+        }
+        .expert-panel.active { display: block; height: auto; margin-top: 1rem; }
+
         /* ─────────────────────────────────────────────────────────────────────────────
-           MAIN: TECHNICAL EDITOR
+           THE PARCHMENT (CENTER)
            ───────────────────────────────────────────────────────────────────────────── */
-        main {
-            flex: 1;
-            padding: 3rem;
-            display: flex;
-            flex-direction: column;
-            gap: 2.5rem;
-            max-width: calc(100vw - var(--sidebar-w) - 360px);
-        }
+        .the-parchment { display: flex; flex-direction: column; gap: 1.5rem; }
 
-        .top-nav {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .status-pill {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-family: 'Fira Code', monospace;
-            font-size: 0.8rem;
-            font-weight: 600;
-        }
-
-        .editor-box {
-            flex: 1;
-            background: rgba(0,0,0,0.4);
-            border: 1px solid var(--border);
-            padding: 2rem;
-            position: relative;
-        }
-
-        .editor-box::before {
-            content: ' '; position: absolute; top: -1px; left: -1px; width: 20px; height: 20px;
-            border-top: 2px solid var(--brand); border-left: 2px solid var(--brand);
+        .editor-container {
+            flex: 1; position: relative;
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+            padding: 1.5rem;
         }
 
         textarea {
             width: 100%; height: 100%;
-            background: transparent; border: none;
-            color: #fff; font-family: 'Fira Code', monospace;
-            font-size: 1rem; line-height: 1.7;
-            resize: none; outline: none;
-        }
-
-        /* ─────────────────────────────────────────────────────────────────────────────
-           RIGHT: FORENSIC ANALYTICS HUD
-           ───────────────────────────────────────────────────────────────────────────── */
-        aside.analytics {
-            width: 360px;
-            background: var(--surface);
-            border-left: 1px solid var(--border);
-            padding: 2.5rem 1.8rem;
-            display: flex;
-            flex-direction: column;
-            gap: 2.5rem;
-            backdrop-filter: blur(24px);
-        }
-
-        .score-panel {
-            text-align: center;
-            padding: 2rem;
-            background: linear-gradient(180deg, rgba(37, 99, 235, 0.1) 0%, transparent 100%);
-            border: 1px solid var(--border);
-        }
-
-        .gauge-container {
-            position: relative;
-            width: 160px; height: 160px;
-            margin: 0 auto 2rem;
-        }
-
-        svg.gauge { transform: rotate(-90deg); }
-        .gauge-bg { fill: none; stroke: var(--border); stroke-width: 8; }
-        .gauge-fill { 
-            fill: none; stroke: var(--brand); stroke-width: 8; 
-            stroke-dasharray: 440; stroke-dashoffset: 440;
-            transition: stroke-dashoffset 1s ease-out;
-            filter: drop-shadow(0 0 8px var(--brand-glow));
-        }
-
-        .gauge-text {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            font-family: 'Fira Code', monospace;
-            font-size: 2.2rem; font-weight: 700;
-        }
-
-        .metric-card {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-
-        .metric-info { display: flex; justify-content: space-between; align-items: baseline; }
-        .metric-name { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; font-weight: 700; }
-        .metric-val { font-family: 'Fira Code', monospace; font-size: 1rem; font-weight: 700; color: #fff; }
-
-        .progress-track { height: 4px; background: rgba(255,255,255,0.05); }
-        .progress-bar { height: 100%; background: var(--brand); transition: width 0.8s ease; box-shadow: 0 0 10px var(--brand-glow); }
-
-        .verdict-box {
-            padding: 1.25rem;
-            background: rgba(37, 99, 235, 0.05);
-            border-left: 4px solid var(--brand);
-            font-size: 0.85rem;
-            line-height: 1.6;
-            font-family: 'Fira Sans', sans-serif;
+            background: transparent; border: none; outline: none;
+            color: var(--text-main); font-family: 'Fira Code', monospace;
+            font-size: 1.05rem; line-height: 1.8; resize: none;
         }
 
         #previewViewport {
-            width: 100%; height: 380px;
-            background: #000;
-            margin-top: 1rem;
-            position: relative;
-            border: 1px solid var(--border);
-            overflow: hidden;
+            height: 400px; background: #000; border-radius: 12px;
+            position: relative; overflow: hidden; border: 1px solid var(--border);
         }
 
         #previewImg { width: 100%; height: 100%; object-fit: contain; }
 
-        button.cta {
-            background: var(--cta);
-            color: #fff;
-            border: none;
-            padding: 1.25rem;
-            font-family: 'Fira Code', monospace;
-            font-weight: 700;
-            letter-spacing: 1px;
-            cursor: pointer;
-            width: 100%;
-            transition: all 0.2s;
-            margin-top: auto;
+        /* ─────────────────────────────────────────────────────────────────────────────
+           FORENSIC HUD (RIGHT)
+           ───────────────────────────────────────────────────────────────────────────── */
+        .forensic-hud { overflow-y: auto; }
+
+        .gauge-wrap {
+            position: relative; width: 180px; height: 180px; margin: 1.5rem auto;
+        }
+        svg.gauge { transform: rotate(-90deg); }
+        .gauge-bg { fill: none; stroke: var(--border); stroke-width: 10; }
+        .gauge-fill { 
+            fill: none; stroke: var(--brand); stroke-width: 10; stroke-linecap: round;
+            filter: drop-shadow(0 0 8px var(--brand-glow));
         }
 
-        button.cta:hover { transform: scale(1.02); box-shadow: 0 0 30px rgba(249, 115, 22, 0.4); }
+        .gauge-text {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        .gauge-text h2 { font-size: 2.5rem; font-weight: 700; font-family: 'Fira Code'; }
+        .gauge-text p { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); }
+
+        .metric-row {
+            display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.5rem;
+        }
+        .metric-meta { display: flex; justify-content: space-between; font-size: 0.8rem; }
+        .metric-meta b { font-family: 'Fira Code'; color: var(--brand); }
+        .track { height: 6px; background: rgba(255,255,255,0.03); border-radius: 3px; overflow: hidden; }
+        .bar { height: 100%; background: var(--brand); width: 0%; box-shadow: 0 0 10px var(--brand-glow); }
+
+        .verdict-tag {
+            padding: 1rem; border-radius: 8px; border: 1px solid var(--border);
+            font-size: 0.85rem; line-height: 1.5; background: rgba(59, 130, 246, 0.03);
+        }
+
+        /* ─────────────────────────────────────────────────────────────────────────────
+           UI UTILITY & BUTTONS
+           ───────────────────────────────────────────────────────────────────────────── */
+        .section-title {
+            font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px;
+            color: var(--brand); font-weight: 700; margin-bottom: 1rem;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+        button.cta {
+            background: var(--brand); color: #fff; border: none;
+            padding: 1.25rem; border-radius: 12px; font-weight: 700;
+            letter-spacing: 1px; cursor: pointer; transition: all 0.3s;
+            margin-top: 1rem; text-transform: uppercase; font-family: 'Fira Code';
+        }
+        button.cta:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 10px 30px var(--brand-glow); }
+        button.cta:disabled { opacity: 0.5; cursor: wait; }
 
         .loader {
-            position: absolute; top: 50%; left: 50%;
-            width: 40px; height: 40px;
-            border: 2px solid var(--border);
-            border-top-color: var(--brand);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            display: none;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); display: none; place-items: center; z-index: 10;
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .skeleton-blueprint {
+            position: absolute; inset: 0; background: #000;
+            display: none; opacity: 0.4;
+            background-image: radial-gradient(circle at 2px 2px, var(--brand) 1px, transparent 0);
+            background-size: 20px 20px;
+        }
+
+        .status-pill {
+            display: flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.1);
+            padding: 4px 12px; border-radius: 20px; font-family: 'Fira Code'; font-size: 0.7rem;
+            color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2);
+        }
 
     </style>
 </head>
 <body>
-
-    <!-- UI/UX PRO MAX Sidebar: Operational Controls -->
-    <aside class="controls">
-        <div class="logo-group">
-            <span class="logo">SOVEREIGN</span><span class="version">V8.0</span>
-        </div>
-
-        <div>
-            <span class="section-label">Motor Kinematics</span>
-            <div class="slider-group">
-                <div class="slider-header"><span>Tremor Amplitude</span><span class="slider-val" id="tremorVal">0.6</span></div>
-                <input type="range" id="tremorSlider" min="0" max="2" step="0.1" value="0.6">
+    <div class="bento-container">
+        
+        <!-- HEADER GRID -->
+        <header class="bento-card">
+            <div style="display: flex; align-items: center; gap: 1.5rem;">
+                <span style="font-family: 'Fira Code'; font-weight: 800; font-size: 1.4rem; letter-spacing: -1px;">SOVEREIGN <span style="background: var(--brand); padding: 2px 8px; font-size: 0.7rem; border-radius: 4px; vertical-align: middle;">V8.0</span></span>
+                <div class="status-pill">
+                    <div id="syncIndicator" style="width: 8px; height: 8px; background: currentColor; border-radius: 50%; box-shadow: 0 0 10px currentColor;"></div>
+                    <span id="syncText">SYNCED_PREVIEW_ACTIVE</span>
+                </div>
             </div>
-            <div class="slider-group">
-                <div class="slider-header"><span>Baseline Offset</span><span class="slider-val" id="driftVal">0.8</span></div>
-                <input type="range" id="driftSlider" min="0" max="5" step="0.1" value="0.8">
-            </div>
-        </div>
-
-        <div>
-            <span class="section-label">Substrate Profile</span>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem;">
-                <div class="style-btn active" data-style="neat">NEAT_STABLE</div>
-                <div class="style-btn" data-style="messy">MESSY_DRIFT</div>
-            </div>
-        </div>
-
-        <button class="cta" id="exportBtn">GENERATE_HIGH_RES</button>
-    </aside>
-
-    <!-- UI/UX PRO MAX Main: Engineering Workstation -->
-    <main>
-        <header class="top-nav">
-            <div class="status-pill" id="statusBox" style="color: var(--success);">
-                <div id="syncIndicator" style="width: 8px; height: 8px; background: currentColor; border-radius: 50%; box-shadow: 0 0 10px currentColor;"></div>
-                <span id="syncText">SYSTEM_SYNC: ACTIVE</span>
-            </div>
-            <div style="font-family: 'Fira Code', monospace; font-size: 0.65rem; color: var(--text-dim);">
-                LATENCY: <span id="latency">--ms</span> | SENSOR: <span id="sensorMode">V8_S_PREVIEW</span>
+            <div style="display: flex; gap: 2rem; font-family: 'Fira Code'; font-size: 0.65rem;">
+                <span style="color: var(--text-dim)">SYSTEM_LATENCY: <b id="latency" style="color: #fff">--ms</b></span>
+                <span style="color: var(--text-dim)">IO_BUFFER: <b style="color: #fff">SECURE_SSL</b></span>
+                <span style="color: var(--text-dim)">SENSOR_ENGINE: <b id="sensorMode" style="color: var(--brand)">V8_S_PREVIEW</b></span>
             </div>
         </header>
 
-        <div class="editor-box">
-            <textarea id="editor" spellcheck="false" placeholder="INITIALIZING INPUT BUFFER...">Forensic Document Analysis — Evidence ID: SVR-992
+        <!-- CONFIG HUB (LEFT) -->
+        <aside class="config-hub">
+            <section class="bento-card" style="flex: 1;">
+                <h3 class="section-title">Writer Persona</h3>
+                <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1.5rem;">Select an organic motor impulse profile to seed kinematic generation.</p>
+                
+                <div class="profile-grid">
+                    <div class="profile-card active" data-profile="natural">
+                        <b>NATURAL</b>
+                        <span>Standard balanced flow.</span>
+                    </div>
+                    <div class="profile-card" data-profile="shaky">
+                        <b>NERVOUS</b>
+                        <span>High tremor, aged paper.</span>
+                    </div>
+                    <div class="profile-card" data-profile="precision">
+                        <b>ENGINEER</b>
+                        <span>Neat, structured ligatures.</span>
+                    </div>
+                    <div class="profile-card" data-profile="messy">
+                        <b>MESSY</b>
+                        <span>High drift, rapid script.</span>
+                    </div>
+                </div>
+
+                <div class="expert-toggle-wrap">
+                    <span style="font-size: 0.85rem; font-weight: 600;">Forensic Laboratory</span>
+                    <label class="switch">
+                        <input type="checkbox" id="expertToggle">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="expert-panel" id="expertPanel">
+                    <h4 class="section-title" style="margin-top: 1.5rem;">Kinematic Modifiers</h4>
+                    <div class="slider-group" style="margin-top: 1rem;">
+                        <div class="metric-meta"><span>Tremor Amplitude</span><b id="tremorVal">0.6</b></div>
+                        <input type="range" id="tremorSlider" min="0" max="2" step="0.1" value="0.6">
+                    </div>
+                    <div class="slider-group" style="margin-top: 1rem;">
+                        <div class="metric-meta"><span>Baseline Offset</span><b id="driftVal">0.8</b></div>
+                        <input type="range" id="driftSlider" min="0" max="5" step="0.1" value="0.8">
+                    </div>
+                </div>
+
+                <button class="cta" id="exportBtn">GENERATE_HIGH_RES</button>
+            </section>
+        </aside>
+
+        <!-- THE PARCHMENT (CENTER) -->
+        <section class="the-parchment">
+            <div class="bento-card" style="flex: 1; padding: 1rem;">
+                <h3 class="section-title" style="margin-bottom: 0.5rem;">Input Buffer</h3>
+                <div class="editor-container">
+                    <textarea id="editor" spellcheck="false" placeholder="WAITING_FOR_DATA...">Forensic Document Analysis — Evidence ID: SVR-992
 
 The handwriting sample exhibits specific bio-kinematic markers consistent with human-driven motor impulses. 
 
 Analysis of the power-law coupling reveals a natural curvature-velocity trade-off, strongly suggesting organic origin.</textarea>
-        </div>
-
-        <div id="previewViewport">
-            <div class="loader" id="loader"></div>
-            <img id="previewImg" src="">
-        </div>
-    </main>
-
-    <!-- UI/UX PRO MAX Analytics: Forensic HUD -->
-    <aside class="analytics">
-        <div>
-            <span class="section-label">Authenticity Judge</span>
-            <div class="score-panel">
-                <div class="gauge-container">
-                    <svg class="gauge" width="160" height="160">
-                        <circle class="gauge-bg" cx="80" cy="80" r="70"></circle>
-                        <circle class="gauge-fill" id="scoreFill" cx="80" cy="80" r="70"></circle>
-                    </svg>
-                    <div class="gauge-text" id="scoreVal">0%</div>
-                </div>
-                <div class="verdict-box" id="verdict">
-                    CALIBRATING SENSORS...
                 </div>
             </div>
-        </div>
 
-        <div>
-            <span class="section-label">Sub-Pixel Metrics</span>
-            
-            <div class="metric-card">
-                <div class="metric-info">
-                    <span class="metric-name">Fractal Complexity</span>
-                    <span class="metric-val" id="fdVal">1.45</span>
+            <div class="bento-card" id="previewViewport">
+                <div class="loader" id="loader">
+                    <div style="font-family: 'Fira Code'; font-size: 0.7rem; color: var(--brand);">PREPARING_PBI_LAYER...</div>
                 </div>
-                <div class="progress-track"><div class="progress-bar" id="fdBar" style="width: 0%"></div></div>
+                <div class="skeleton-blueprint" id="skeleton"></div>
+                <img id="previewImg" src="">
+            </div>
+        </section>
+
+        <!-- FORENSIC ANALYTICS (RIGHT) -->
+        <aside class="forensic-hud bento-card">
+            <h3 class="section-title">Authenticity Judge</h3>
+            <div class="gauge-wrap">
+                <svg class="gauge" width="180" height="180">
+                    <circle class="gauge-bg" cx="90" cy="90" r="80"></circle>
+                    <circle class="gauge-fill" id="scoreFill" cx="90" cy="90" r="80" stroke-dasharray="502" stroke-dashoffset="502"></circle>
+                </svg>
+                <div class="gauge-text">
+                    <h2 id="scoreVal">0%</h2>
+                    <p>VERIFIED</p>
+                </div>
             </div>
 
-            <div class="metric-card">
-                <div class="metric-info">
-                    <span class="metric-name">Fourier Kurtosis</span>
-                    <span class="metric-val" id="fkVal">12.4</span>
-                </div>
-                <div class="progress-track"><div class="progress-bar" id="fkBar" style="width: 0%"></div></div>
+            <div class="verdict-tag" id="verdict">
+                CALIBRATING SENSORS: Waiting for Masterpiece mode to activate sub-pixel audit.
             </div>
 
-            <div class="metric-card">
-                <div class="metric-info">
-                    <span class="metric-name">Chromatic Entropy</span>
-                    <span class="metric-val" id="ceVal">4.12</span>
+            <div style="margin-top: auto;">
+                <h3 class="section-title">Sub-Pixel Telemetry</h3>
+                
+                <div class="metric-row">
+                    <div class="metric-meta"><span>Fractal Complexity</span><b id="fdVal">1.45</b></div>
+                    <div class="track"><div class="bar" id="fdBar"></div></div>
                 </div>
-                <div class="progress-track"><div class="progress-bar" id="ceBar" style="width: 0%"></div></div>
+
+                <div class="metric-row">
+                    <div class="metric-meta"><span>Fourier Kurtosis</span><b id="fkVal">12.4</b></div>
+                    <div class="track"><div class="bar" id="fkBar"></div></div>
+                </div>
+
+                <div class="metric-row">
+                    <div class="metric-meta"><span>Chromatic Entropy</span><b id="ceVal">4.12</b></div>
+                    <div class="track"><div class="bar" id="ceBar"></div></div>
+                </div>
             </div>
-        </div>
-    </aside>
+        </aside>
+
+    </div>
 
     <script>
         const editor = document.getElementById('editor');
         const previewImg = document.getElementById('previewImg');
         const loader = document.getElementById('loader');
+        const skeleton = document.getElementById('skeleton');
         const scoreFill = document.getElementById('scoreFill');
         const scoreVal = document.getElementById('scoreVal');
         const verdict = document.getElementById('verdict');
         const latencyDisplay = document.getElementById('latency');
-        const syncBox = document.getElementById('statusBox');
-
-        const driftSlider = document.getElementById('driftSlider');
-        const tremorSlider = document.getElementById('tremorSlider');
-        
-        const exportBtn = document.getElementById('exportBtn');
         const syncIndicator = document.getElementById('syncIndicator');
         const syncText = document.getElementById('syncText');
         const sensorMode = document.getElementById('sensorMode');
+        const expertToggle = document.getElementById('expertToggle');
+        const expertPanel = document.getElementById('expertPanel');
+        const exportBtn = document.getElementById('exportBtn');
+
+        const driftSlider = document.getElementById('driftSlider');
+        const tremorSlider = document.getElementById('tremorSlider');
         
         let debounceTimer;
         let activeStyle = 'neat';
         let isSyncing = true;
 
-        // GSAP Initialization
-        gsap.set(".gauge-fill", { strokeDashoffset: 440 });
-        gsap.set(".progress-bar", { width: "0%" });
+        // GSAP: Entry Animation
+        gsap.from(".bento-card", { 
+            y: 30, opacity: 0, duration: 0.8, stagger: 0.1, ease: "power4.out" 
+        });
 
-        // UI-UX PRO MAX: Interactive State MGMT
-        document.querySelectorAll('.style-btn').forEach(btn => {
-            btn.onclick = () => {
-                document.querySelector('.style-btn.active')?.classList.remove('active');
-                btn.classList.add('active');
-                activeStyle = btn.dataset.style;
+        // Expert Mode Toggle
+        expertToggle.onchange = () => {
+            expertPanel.classList.toggle('active', expertToggle.checked);
+            gsap.from(expertPanel, { height: 0, opacity: 0, duration: 0.4, ease: "power2.out" });
+        };
+
+        // Writer Personas Logic
+        const personas = {
+            natural: { style: 'neat', tremor: 0.6, drift: 0.8 },
+            shaky: { style: 'messy', tremor: 1.4, drift: 2.2 },
+            precision: { style: 'neat', tremor: 0.3, drift: 0.2 },
+            messy: { style: 'messy', tremor: 0.9, drift: 3.5 }
+        };
+
+        document.querySelectorAll('.profile-card').forEach(card => {
+            card.onclick = () => {
+                document.querySelector('.profile-card.active')?.classList.remove('active');
+                card.classList.add('active');
+                
+                const p = personas[card.dataset.profile];
+                activeStyle = p.style;
+                tremorSlider.value = p.tremor;
+                driftSlider.value = p.drift;
+                document.getElementById('tremorVal').innerText = p.tremor;
+                document.getElementById('driftVal').innerText = p.drift;
+                
                 triggerSync();
             };
         });
 
+        // Manual Sliders
         driftSlider.oninput = () => { document.getElementById('driftVal').innerText = driftSlider.value; triggerSync(); };
         tremorSlider.oninput = () => { document.getElementById('tremorVal').innerText = tremorSlider.value; triggerSync(); };
         editor.oninput = () => triggerSync();
@@ -456,11 +437,13 @@ Analysis of the power-law coupling reveals a natural curvature-velocity trade-of
         }
 
         async function generate(isPreview = true) {
-            loader.style.display = 'block';
+            loader.style.display = isPreview ? 'none' : 'grid';
             if (!isPreview) {
                 exportBtn.innerText = "PROCESSING_MASTERPIECE...";
                 exportBtn.disabled = true;
                 sensorMode.innerText = "V8_S_FORENSIC";
+                skeleton.style.display = 'block';
+                gsap.fromTo(skeleton, { opacity: 0 }, { opacity: 0.4, duration: 0.5 });
             }
             
             const startTime = performance.now();
@@ -492,6 +475,7 @@ Analysis of the power-law coupling reveals a natural curvature-velocity trade-of
                 setSyncStatus(false);
             } finally {
                 loader.style.display = 'none';
+                skeleton.style.display = 'none';
                 if (!isPreview) {
                     exportBtn.innerText = "GENERATE_HIGH_RES";
                     exportBtn.disabled = false;
@@ -502,69 +486,58 @@ Analysis of the power-law coupling reveals a natural curvature-velocity trade-of
 
         function setSyncStatus(active) {
             isSyncing = active;
-            syncText.innerText = active ? "SYSTEM_SYNC: ACTIVE" : "SYSTEM_SYNC: DISCONNECTED";
-            syncBox.style.color = active ? "var(--success)" : "var(--danger)";
+            syncText.innerText = active ? "SYNCED_PREVIEW_ACTIVE" : "CONNECTION_ERROR";
+            document.getElementById('statusBox').style.color = active ? "var(--success)" : "var(--danger)";
             gsap.to(syncIndicator, { opacity: active ? 1 : 0.3, duration: 0.3 });
         }
 
         function updateUI(audit, isPreview) {
             if (isPreview) {
-                // In preview mode, we might not have fresh audit data, so we dim it or show cached
-                gsap.to(".analytics", { opacity: 0.7, duration: 0.5 });
+                gsap.to(".forensic-hud", { opacity: 0.6, duration: 0.5 });
                 return;
             }
             
-            gsap.to(".analytics", { opacity: 1, duration: 0.5 });
+            gsap.to(".forensic-hud", { opacity: 1, duration: 0.5 });
             if (!audit) return;
             
-            // Score Gauge (440 is full circle)
             const score = Math.round(audit.authenticity_score * 100);
-            const offset = 440 - (440 * (score / 100));
+            const offset = 502 - (502 * (score / 100)); // 502 is circumference for r=80
             
-            gsap.to(scoreFill, { strokeDashoffset: offset, duration: 1.5, ease: "power4.out" });
+            gsap.to(scoreFill, { strokeDashoffset: offset, duration: 2, ease: "expo.out" });
             
             let count = { val: parseInt(scoreVal.innerText) || 0 };
-            gsap.to(count, { val: score, duration: 1.5, onUpdate: () => {
+            gsap.to(count, { val: score, duration: 2, onUpdate: () => {
                 scoreVal.innerText = Math.round(count.val) + "%";
             }});
             
-            // Metrics with sequential stagger
-            document.getElementById('fdVal').innerText = audit.fractal_dimension.toFixed(3);
-            gsap.to("#fdBar", { width: Math.min(100, (audit.fractal_dimension / 2.0) * 100) + "%", duration: 1, ease: "expo.out" });
-            
-            document.getElementById('fkVal').innerText = Math.round(audit.fourier_kurtosis);
-            gsap.to("#fkBar", { width: Math.max(0, 100 - (audit.fourier_kurtosis / 40.0) * 100) + "%", duration: 1, delay: 0.1, ease: "expo.out" });
-            
-            document.getElementById('ceVal').innerText = audit.chroma_entropy.toFixed(2);
-            gsap.to("#ceBar", { width: (audit.chroma_entropy / 8.0) * 100 + "%", duration: 1, delay: 0.2, ease: "expo.out" });
+            // Metrics Stagger
+            gsap.to("#fdBar", { width: Math.min(100, (audit.fractal_dimension / 2.0) * 100) + "%", duration: 1.2, ease: "power2.out" });
+            gsap.to("#fkBar", { width: Math.max(0, 100 - (audit.fourier_kurtosis / 40.0) * 100) + "%", duration: 1.2, delay: 0.1, ease: "power2.out" });
+            gsap.to("#ceBar", { width: (audit.chroma_entropy / 8.0) * 100 + "%", duration: 1.2, delay: 0.2, ease: "power2.out" });
 
-            // Forensic Analysis Output
+            // Numerical Updates
+            document.getElementById('fdVal').innerText = audit.fractal_dimension.toFixed(3);
+            document.getElementById('fkVal').innerText = Math.round(audit.fourier_kurtosis);
+            document.getElementById('ceVal').innerText = audit.chroma_entropy.toFixed(2);
+
+            // Verdict
             let verdictText = "";
-            let borderColor = "var(--border)";
-            if (score > 90) {
-                verdictText = "AUTHENTIC: Bio-kinematic impulses within 2σ of human baseline. No digital artifacts detected.";
-                borderColor = "var(--success)";
-            } else if (score > 70) {
-                verdictText = "PROBABLE AUTHENTIC: Geometric jitter exceeds normal variance. Secondary audit recommended.";
-                borderColor = "#fff";
-            } else {
-                verdictText = "FAIL: Fourier clean spikes detected. High probability of digital forgery.";
-                borderColor = "var(--danger)";
-            }
+            let color = "var(--text-dim)";
+            if (score > 90) { verdictText = "AUTHENTIC: Kinematic markers match human motor impulses."; color = "var(--success)"; }
+            else if (score > 70) { verdictText = "PROBABLE: Minor geometric artifacts detected."; color = "#fff"; }
+            else { verdictText = "FAIL: Fourier clean spikes suggest digital forgery."; color = "var(--danger)"; }
 
             verdict.innerText = verdictText;
-            gsap.to(verdict, { borderColor: borderColor, duration: 0.5 });
+            gsap.to(verdict, { borderColor: color, color: color, duration: 0.5 });
         }
 
-        // Live Heartbeat Animation
         function pulse() {
             if (!isSyncing) return;
-            gsap.fromTo(syncIndicator, { scale: 1, opacity: 1 }, { scale: 1.5, opacity: 0.5, duration: 0.8, repeat: 1, yoyo: true, onComplete: () => setTimeout(pulse, 2000) });
+            gsap.fromTo(syncIndicator, { scale: 1, opacity: 1 }, { scale: 1.6, opacity: 0, duration: 1.2, repeat: 1, onComplete: () => setTimeout(pulse, 2000) });
         }
         pulse();
-
-        // Boot system
         generate(true);
+    </script>
     </script>
 </body>
 </html>

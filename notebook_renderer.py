@@ -255,11 +255,12 @@ class HandwritingRenderer:
             tmp = Image.new("RGBA", (char_w + pad * 2, char_h + pad * 2), (0, 0, 0, 0))
             ImageDraw.Draw(tmp).text((pad - bbox[0], pad - bbox[1]), char, font=font, fill=ink)
             
-            # Perturb with Elastic Warping and Spatial Fix
+            # Perturb with Elastic Warping and Precision Pivot Mapping (v8.1)
             variation_mag = self.cfg.variation_magnitude
             tmp, px, py = perturb_glyph_mask(
                 tmp, dx=dx, dy=dy, rotation=rotation, scale=scale, 
-                anchor_bottom=True, variation_magnitude=variation_mag, 
+                pivot_x=pad, pivot_y=pad,
+                variation_magnitude=variation_mag, 
                 rng=self._np_rng
             )
             

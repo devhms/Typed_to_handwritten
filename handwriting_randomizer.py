@@ -228,23 +228,28 @@ def generate_baseline_wander(
     rng: np.random.Generator = None,
 ) -> np.ndarray:
     """
-    Simulates baseline wander as a correlated random walk.
-    Each y_offset is sampled with correlation to the previous step,
-    then accumulated via cumulative sum.
+    Simulates baseline wander as a Mean-Reverting (Ornstein-Uhlenbeck) process.
+    Unlike a pure random walk (cumulative sum), this prevents infinite drift
+    by "pulling" the baseline back to y=0 at each step.
     """
     if rng is None:
         rng = np.random.default_rng()
     sd_step = apply_bias_to_variance(sd_step, bias)
 
+    # Mean-reversion strength (0.1 means 10% pull per char)
+    reversion_strength = 0.15
+    
     wander = np.zeros(n_chars)
-    prev = 0.0
+    current = 0.0
     for i in range(n_chars):
+        # Pull back towards center
+        current -= reversion_strength * current
+        # Add correlated noise
         noise = rng.normal(0.0, sd_step)
-        step = ro * prev + math.sqrt(1 - ro ** 2) * noise
-        wander[i] = step
-        prev = step
+        current += noise
+        wander[i] = current
 
-    return np.cumsum(wander)
+    return wander
 
 
 def generate_line_baseline_wander(
@@ -256,7 +261,7 @@ def generate_line_baseline_wander(
     """
     Produces the final y-offset array for one line of text.
     """
-    sd_step = font_size_px * 0.008  # ~0.8% of font height per step
+    sd_step = font_size_px * 0.04  # Scaling up for the mean-reversion pull
     return generate_baseline_wander(n_chars, sd_step=sd_step, ro=0.72,
                                      bias=bias, rng=rng)
 
@@ -272,27 +277,23 @@ def apply_elastic_warp(image: Image.Image, magnitude: float = 0.02, rng=None) ->
     img_arr = np.array(image)
     h, w = img_arr.shape[:2]
     
-    # Create low-res displacement grid (e.g. 3x3 control points)
     grid_size = 4
     dx_grid = rng.normal(0, w * magnitude, (grid_size, grid_size))
     dy_grid = rng.normal(0, h * magnitude, (grid_size, grid_size))
     
-    # Upscale displacement maps to full resolution
     dx_map = cv2.resize(dx_grid, (w, h), interpolation=cv2.INTER_CUBIC)
     dy_map = cv2.resize(dy_grid, (w, h), interpolation=cv2.INTER_CUBIC)
     
-    # Create meshgrid
     x, y = np.meshgrid(np.arange(w), np.arange(h))
     map_x = (x + dx_map).astype(np.float32)
     map_y = (y + dy_map).astype(np.float32)
     
-    # Remap image (vectorized deformation)
     warped = cv2.remap(img_arr, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
     return Image.fromarray(warped)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MECHANISM 11 — PER-CHARACTER AFFINE PERTURBATION (Revised)
+# MECHANISM 11 — PER-CHARACTER AFFINE PERTURBATION (Revised v8.1)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def perturb_glyph_mask(
@@ -301,17 +302,19 @@ def perturb_glyph_mask(
     dy: float,
     rotation: float,
     scale: float,
-    anchor_bottom: bool = True,
+    pivot_x: Optional[float] = None,
+    pivot_y: Optional[float] = None,
     variation_magnitude: float = 0.0,
     rng=None,
 ) -> tuple:
     """
     Applies per-character perturbation to a PIL glyph mask image.
-    Now includes Stochastic Mesh Warping and accurate spatial offset tracking.
+    If pivot_x/y are provided, rotates around that point.
+    Returns (glyph, final_dx, final_dy).
     """
     w, h = glyph.size
 
-    # 1. Elastic Warp (Bio-Kinematic unique geometry)
+    # 1. Elastic Warp
     if variation_magnitude > 0:
         glyph = apply_elastic_warp(glyph, magnitude=variation_magnitude, rng=rng)
 
@@ -320,22 +323,34 @@ def perturb_glyph_mask(
         new_w = max(1, int(w * scale))
         new_h = max(1, int(h * scale))
         glyph = glyph.resize((new_w, new_h), Image.LANCZOS)
+        # Update pivot positions proportionally
+        if pivot_x is not None: pivot_x *= scale
+        if pivot_y is not None: pivot_y *= scale
         w, h = glyph.size
 
-    # 3. Rotate
+    # 3. Rotate (Precision Pivot Mapping)
     shift_x, shift_y = 0.0, 0.0
     if abs(rotation) > 0.05:
-        cx, cy = (w / 2, h - 2) if anchor_bottom else (w / 2, h / 2)
+        # Default pivot is bottom-center if not provided
+        cx = pivot_x if pivot_x is not None else w / 2.0
+        cy = pivot_y if pivot_y is not None else h - 2.0
         
-        # Capture expansion shift
         rotated = glyph.rotate(-rotation, resample=Image.BICUBIC, center=(cx, cy), expand=True)
         nw, nh = rotated.size
         
-        # Calculate coordinate shift: The original center (cx, cy) is moved 
-        # to the center of the NEW image (nw/2, nh/2) if we use expand=True 
-        # and default centered rotation logic.
-        shift_x = (nw - w) / 2.0
-        shift_y = (nh - h) / 2.0
+        # Exact geometric pivot tracking
+        rad = math.radians(rotation)
+        cos_t, sin_t = math.cos(rad), math.sin(rad)
+        
+        vx, vy = cx - w/2.0, cy - h/2.0
+        vx_rot = vx * cos_t - vy * sin_t
+        vy_rot = vx * sin_t + vy * cos_t
+        
+        new_pivot_x = nw/2.0 + vx_rot
+        new_pivot_y = nh/2.0 + vy_rot
+        
+        shift_x = cx - new_pivot_x
+        shift_y = cy - new_pivot_y
         
         glyph = rotated
 

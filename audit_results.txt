@@ -1,0 +1,1 @@
+FORENSIC AUDIT v2.0 RESULTS: {'authenticity_score': 0.6237, 'fractal_dimension': 1.90534674854476, 'fourier_kurtosis': 4.022349926624593, 'chroma_entropy': 4.102230072021484}

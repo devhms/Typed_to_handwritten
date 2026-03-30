@@ -12,10 +12,16 @@
 
 import math
 import numpy as np
+import cv2
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont  # Fix 3: removed unused ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
+
+# Phase 3/4 Dependencies
+from fiber_generator import generate_fiber_map
+from thixotropic_pbi import ThixotropicPBI
+from bio_kinematic_engine import BioKinematicEngine
 
 # MDN-derived randomization from pytorch-handwriting-synthesis-toolkit
 from handwriting_randomizer import (
@@ -38,6 +44,15 @@ class NotebookConfig:
     # Page geometry (A4 at 300 DPI)
     page_w: int = 2480
     page_h: int = 3508
+
+    # Style Preset: 'neat' or 'messy'
+    style: str = 'neat'
+    
+    # Parametric Variation (scaled by style)
+    variation_magnitude: float = 0.02  # Deformation field strength
+    drift_intensity: float = 0.6       # Baseline walk amplitude
+    margin_panic_strength: float = 0.1 # Compression near right margin
+    fatigue_slant_rate: float = 0.02   # Slant increase per line (%)
 
     # Paper colors
     paper_color: Tuple[int, int, int] = (255, 255, 252)
@@ -63,16 +78,13 @@ class NotebookConfig:
     # Ink color (blue ballpoint)
     ink_color: Tuple[int, int, int, int] = (18, 32, 168, 230)
 
-    # MDN bias parameter: controls ALL variation with a single knob
-    #   bias=0.0  -> default natural student writing
-    #   bias=0.5  -> neater, tighter (exam quality)
-    #   bias=-0.5 -> messier, looser (rushed writing)
+    # MDN bias parameter
     bias: float = 0.0
 
     # Word spacing
     word_spacing_base: int = 16
 
-    # Fix 5: header_line_spacing matches line_spacing to stay on ruled grid
+    # Header spacing
     header_line_spacing: int = 100
 
 
@@ -87,11 +99,10 @@ class PaperGenerator:
         self.cfg = cfg
 
     def generate(self) -> Image.Image:
-        """Create the paper background with ruled lines and margin."""
         paper = Image.new("RGBA", (self.cfg.page_w, self.cfg.page_h),
                           (*self.cfg.paper_color, 255))
 
-        # Fix 2: Apply subtle paper grain directly — no dead `grain` variable
+        # Apply subtle paper grain directly
         rng = np.random.default_rng(42)
         noise = rng.integers(-4, 5, (self.cfg.page_h, self.cfg.page_w), dtype=np.int16)
         paper_arr = np.array(paper)
@@ -113,7 +124,7 @@ class PaperGenerator:
             )
             y += self.cfg.line_spacing
 
-        # Red margin line (full height)
+        # Red margin line
         draw.line(
             [(self.cfg.margin_x, 0), (self.cfg.margin_x, self.cfg.page_h)],
             fill=self.cfg.margin_line_color,
@@ -128,36 +139,44 @@ class PaperGenerator:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class HandwritingRenderer:
-    """
-    Renders individual characters using MDN-derived randomization.
-    Uses a single font (Caveat) with per-character perturbations from
-    the MixtureSampler (3 writing modes: neat/rushed/careful).
-
-    All variation is controlled by a single 'bias' parameter:
-      bias=0.0  -> natural student writing
-      bias=0.5  -> neater, exam-quality
-      bias=-0.5 -> messier, rushed
-
-    v2.1: Single RNG stream (_np_rng only), clamped advance,
-    correct paste_y formula per Pillow docs, fast path restored.
-    """
-
     def __init__(self, cfg: NotebookConfig, seed: int = 42):
         self.cfg = cfg
-        # Fix 9: Single RNG — _np_rng for all randomness
         self._np_rng = np.random.default_rng(seed)
         self._fonts_cache = {}
         self._char_count = 0
 
-        # MDN-derived systems
         self._bc = BiasController(cfg.bias)
         self._mixture = make_default_mixture(bias=cfg.bias, rng=self._np_rng)
-
-        # Pre-load the base font
         self._base_font = self._load_font(cfg.body_font_size)
+    
+        # Phase 3 / v8.0 Engines
+        self.pbi_engine = ThixotropicPBI()
+        self.kinematic_engine = BioKinematicEngine(seed=seed)
+    
+    def _apply_unified_pbi(self, masterpiece_canvas: np.ndarray, mask: np.ndarray, 
+                            offset_x: int, offset_y: int, 
+                            groove_canvas: Optional[np.ndarray] = None,
+                            fiber_map: Optional[np.ndarray] = None):
+        """
+        Phase 4: High-Precision Unified PBI Deposition.
+        Converts mask to kinematic-like velocity/pressure distribution for the v8.0 PBI.
+        """
+        # Heuristic: map mask intensities to path points
+        y_idx, x_idx = np.nonzero(mask > 50)
+        if len(y_idx) == 0: return
+        
+        # Create a synthetic stroke density distribution
+        # Since we have a mask (raster), we treat it as a dense cloud of points
+        points = []
+        for my, mx in zip(y_idx, x_idx):
+            pressure = mask[my, mx] / 255.0
+            # v is lower where mask is thicker (higher pressure)
+            v = 1.0 / (0.5 + pressure)
+            points.append([offset_x + mx, offset_y + my, v, pressure])
+            
+        self.pbi_engine.render_bio_stroke(np.array(points), masterpiece_canvas, groove_canvas, fiber_map)
 
     def _load_font(self, size: int) -> ImageFont.FreeTypeFont:
-        """Load primary font at the given size."""
         if size in self._fonts_cache:
             return self._fonts_cache[size]
 
@@ -176,13 +195,6 @@ class HandwritingRenderer:
         return font
 
     def get_line_wander(self, n_chars: int) -> np.ndarray:
-        """
-        Generate baseline wander for a full line using correlated random walk.
-        PUBLIC method (Fix 8) — called from render_notebook_page().
-
-        This is how the LSTM-MDN naturally produces baseline drift:
-        cumulative sum of correlated y-offset samples.
-        """
         return generate_line_baseline_wander(
             n_chars,
             font_size_px=self.cfg.body_font_size,
@@ -191,13 +203,7 @@ class HandwritingRenderer:
         )
 
     def _sample_ink_color(self) -> Tuple[int, int, int, int]:
-        """
-        Per-character ink color via bivariate Gaussian (Mechanism 2).
-        R and G channels are correlated (pen pressure affects both),
-        B channel is semi-independent. Alpha varies with pressure.
-        """
         r, g, b, a = self.cfg.ink_color
-        # Correlated R/G drift (pen pressure coupling)
         dr, dg = sample_bivariate_gaussian(
             sd1=self._bc.scale_sd(3.0),
             sd2=self._bc.scale_sd(2.0),
@@ -205,11 +211,7 @@ class HandwritingRenderer:
             rng=self._np_rng,
         )
         db = self._np_rng.normal(0, self._bc.scale_sd(3.0))
-
-        # Alpha variation (pressure)
-        alpha_sd = self._bc.scale_sd(10.0)
-        alpha = self._np_rng.normal(a, alpha_sd)
-
+        alpha = self._np_rng.normal(a, self._bc.scale_sd(10.0))
         return (
             int(np.clip(r + dr, 0, 255)),
             int(np.clip(g + dg, 0, 255)),
@@ -220,81 +222,58 @@ class HandwritingRenderer:
     def render_char(self, canvas: Image.Image, char: str, x: int, y_baseline: int,
                     baseline_offset: float = 0.0,
                     font: Optional[ImageFont.FreeTypeFont] = None,
-                    ink: Optional[Tuple] = None) -> int:
-        """
-        Render a single character using MDN MixtureSampler.
-
-        Each call samples from one of 3 mixture components (neat/rushed/careful),
-        producing correlated (dx, dy) offsets, rotation, and scale — exactly
-        as the LSTM-MDN does per pen-step.
-
-        Fix 1: paste_y corrected per Pillow docs (y + bbox[1]).
-        Fix 7: advance multiplier clamped to [0.7, 1.4].
-        Fix 11: fast path restored for near-zero transforms.
-        """
+                    ink: Optional[Tuple] = None,
+                    masterpiece_canvas: Optional[np.ndarray] = None,
+                    groove_canvas: Optional[np.ndarray] = None,
+                    fiber_map: Optional[np.ndarray] = None) -> int:
         if font is None:
             font = self._base_font
         if ink is None:
             ink = self._sample_ink_color()
 
-        # Sample perturbation from mixture (Mechanism 3)
         sample = self._mixture.sample()
-        dx = sample['dx']
-        dy = sample['dy']
-        rotation = sample['rotation']
-        scale = sample['scale']
+        dx, dy = sample['dx'], sample['dy']
+        rotation, scale = sample['rotation'], sample['scale']
+
+        # Extra safety: clamp vertical jitter to prevent outliers jumping off rule
+        dy = float(np.clip(dy, -2.5, 2.5))
 
         bbox = font.getbbox(char)
-        char_w = bbox[2] - bbox[0]
-        char_h = bbox[3] - bbox[1]
+        char_w, char_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
         if char_w <= 0 or char_h <= 0:
             return round(font.getlength(" "))
 
-        # Calculate baseline-corrected y position
         base_y = y_baseline + round(baseline_offset)
 
-        # Fix 11: Fast path — direct draw when transforms are negligible
+        # Fast path
         if abs(rotation) < 0.1 and abs(scale - 1.0) < 0.01 and abs(dx) < 0.5 and abs(dy) < 0.5:
             draw = ImageDraw.Draw(canvas)
-            draw_x = x + round(dx)
-            draw_y = base_y + round(dy)
-            # anchor='ls' = left-baseline: Pillow positions text so baseline sits at y
-            if (0 <= draw_x < canvas.width - char_w and
-                    0 <= draw_y - char_h and draw_y < canvas.height):
-                draw.text((draw_x, draw_y), char, font=font, fill=ink, anchor='ls')
+            draw.text((x + round(dx), base_y + round(dy)), char, font=font, fill=ink, anchor='ls')
         else:
-            # Slow path: temp canvas for rotation/scale
-            pad = 12
-            tmp_w = char_w + pad * 2
-            tmp_h = char_h + pad * 2
-            tmp = Image.new("RGBA", (tmp_w, tmp_h), (0, 0, 0, 0))
-            tmp_draw = ImageDraw.Draw(tmp)
-            # Draw at (-bbox[0]+pad, -bbox[1]+pad) so glyph is centered in temp
-            tmp_draw.text((pad - bbox[0], pad - bbox[1]), char, font=font, fill=ink)
-
-            # Apply MDN perturbation (Mechanism 9: scale + rotation)
+            # Slow path / Masterpiece Interceptor
+            pad = 24
+            tmp = Image.new("RGBA", (char_w + pad * 2, char_h + pad * 2), (0, 0, 0, 0))
+            ImageDraw.Draw(tmp).text((pad - bbox[0], pad - bbox[1]), char, font=font, fill=ink)
+            
+            # Perturb with Elastic Warping and Spatial Fix
+            variation_mag = self.cfg.variation_magnitude
             tmp, px, py = perturb_glyph_mask(
-                tmp, dx=dx, dy=dy,
-                rotation=rotation, scale=scale,
-                anchor_bottom=True,
+                tmp, dx=dx, dy=dy, rotation=rotation, scale=scale, 
+                anchor_bottom=True, variation_magnitude=variation_mag, 
+                rng=self._np_rng
             )
-
-            # Fix 1: Correct paste formula per Pillow docs
-            # When drawing at (pad - bbox[0], pad - bbox[1]) in temp canvas,
-            # paste at (x + bbox[0] - pad, y_baseline + bbox[1] - pad) to align baseline.
-            paste_x = int(x + bbox[0] - pad + px)
-            paste_y = int(base_y + bbox[1] - pad + py)
-
-            if (0 <= paste_x < canvas.width - tmp.width and
-                    0 <= paste_y and
-                    paste_y + tmp.height <= canvas.height):
+            
+            # Accurate spatial anchoring (no more floating letters)
+            paste_x = int(round(x + bbox[0] - pad + px))
+            paste_y = int(round(base_y + bbox[1] - pad + py))
+            
+            if masterpiece_canvas is not None:
+                mask_alpha = np.array(tmp)[:, :, 3]
+                self._apply_unified_pbi(masterpiece_canvas, mask_alpha, paste_x, paste_y, groove_canvas, fiber_map)
+            else:
                 canvas.paste(tmp, (paste_x, paste_y), tmp)
 
-        # Fix 7: Clamp advance multiplier to [0.7, 1.4]
-        spacing_noise = float(np.clip(
-            self._np_rng.normal(1.0, self._bc.spacing_jitter),
-            0.7, 1.4
-        ))
+        spacing_noise = float(np.clip(self._np_rng.normal(1.0, self._bc.spacing_jitter), 0.7, 1.4))
         advance = round(font.getlength(char) * float(np.clip(scale, 0.88, 1.12)) * spacing_noise)
         self._char_count += 1
         return max(1, advance)
@@ -302,356 +281,244 @@ class HandwritingRenderer:
     def render_word(self, canvas: Image.Image, word: str, x: int, y_baseline: int,
                     wander_offsets: Optional[np.ndarray] = None,
                     baseline_offset: float = 0.0,
-                    font: Optional[ImageFont.FreeTypeFont] = None) -> int:
-        """
-        Render a word character-by-character with MDN randomization.
-        Each char gets its own mixture sample (independent perturbation).
-
-        Fix 6: wander_offsets is a per-character array. Each char gets its
-        own wander value for smooth, continuous baseline drift.
-        """
+                    font: Optional[ImageFont.FreeTypeFont] = None,
+                    masterpiece_canvas: Optional[np.ndarray] = None,
+                    groove_canvas: Optional[np.ndarray] = None,
+                    fiber_map: Optional[np.ndarray] = None) -> int:
         cursor = x
-        if font is None:
-            font = self._base_font
-
+        if font is None: font = self._base_font
         for i, ch in enumerate(word):
-            # Fix 6: Per-character wander from the pre-computed array
             char_wander = baseline_offset
             if wander_offsets is not None and i < len(wander_offsets):
                 char_wander += float(wander_offsets[i])
-
-            adv = self.render_char(
-                canvas, ch, cursor, y_baseline,
-                baseline_offset=char_wander,
-                font=font, ink=None,
-            )
-            cursor += adv
+            cursor += self.render_char(canvas, ch, cursor, y_baseline, 
+                                     baseline_offset=char_wander, font=font,
+                                     masterpiece_canvas=masterpiece_canvas,
+                                     groove_canvas=groove_canvas,
+                                     fiber_map=fiber_map)
         return cursor - x
 
     def word_spacing_noise(self) -> float:
-        """
-        Fix 8: PUBLIC method for word spacing jitter.
-        Returns a multiplicative noise factor for word spacing.
-        Clamped to [0.5, 2.0] so spacing never collapses or explodes.
-        """
-        return float(np.clip(
-            self._np_rng.normal(1.0, self._bc.spacing_jitter),
-            0.5, 2.0
-        ))
+        return float(np.clip(self._np_rng.normal(1.0, self._bc.spacing_jitter), 0.5, 2.0))
 
     def _get_jittered_ink(self) -> Tuple[int, int, int, int]:
-        """Convenience wrapper used by HeaderRenderer."""
         return self._sample_ink_color()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TEXT LAYOUT ENGINE
+# HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TextLayoutEngine:
-    """Wraps text to fit within ruled line boundaries."""
-
-    def __init__(self, cfg: NotebookConfig):
-        self.cfg = cfg
-
-    def wrap_text(self, text: str, font: ImageFont.FreeTypeFont,
-                  max_width: int) -> List[str]:
-        """Word-wrap text to fit within max_width pixels."""
+    def __init__(self, cfg: NotebookConfig): self.cfg = cfg
+    def wrap_text(self, text, font, max_w):
         words = text.split()
-        lines, current_line, current_width = [], [], 0.0
-        space_w = font.getlength(" ")
-
-        for word in words:
-            word_w = font.getlength(word)
-            test_width = current_width + word_w + (space_w if current_line else 0)
-
-            if test_width > max_width and current_line:
-                lines.append(" ".join(current_line))
-                current_line = [word]
-                current_width = word_w
+        lines, current, current_w = [], [], 0
+        sw = font.getlength(" ")
+        for w in words:
+            ww = font.getlength(w)
+            if current_w + ww + (sw if current else 0) > max_w and current:
+                lines.append(" ".join(current)); current, current_w = [w], ww
             else:
-                current_line.append(word)
-                current_width += word_w + (space_w if len(current_line) > 1 else 0)
-
-        if current_line:
-            lines.append(" ".join(current_line))
+                current.append(w); current_w += ww + (sw if len(current) > 1 else 0)
+        if current: lines.append(" ".join(current))
         return lines
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HEADER RENDERER
-# ─────────────────────────────────────────────────────────────────────────────
-
 class HeaderRenderer:
-    """Renders the assignment header block (class, subject, title)."""
-
-    def __init__(self, cfg: NotebookConfig, hw_renderer: HandwritingRenderer):
-        self.cfg = cfg
-        self.hw = hw_renderer
-
-    def render(self, canvas: Image.Image, header_lines: List[str],
-               title: str, start_y: int) -> int:
-        """
-        Render centered header lines and an underlined title.
-        Returns the Y position after the header block.
-        """
-        font = self.hw._load_font(self.cfg.header_font_size)
-        title_font = self.hw._load_font(self.cfg.title_font_size)
-        curr_y = start_y
-        draw = ImageDraw.Draw(canvas)
-
-        # Center zone
-        center_x = (self.cfg.text_start_x + self.cfg.text_max_x) // 2
-
-        # Render header info lines (centered)
-        for line in header_lines:
-            line_w = round(font.getlength(line))
-            x_start = center_x - line_w // 2
-            self.hw.render_word(canvas, line, x_start, curr_y, font=font)
-            curr_y += self.cfg.header_line_spacing
-
-        # Render title (centered, underlined)
-        title_w = round(title_font.getlength(title))
-        title_x = center_x - title_w // 2
-        title_y = curr_y
-        self.hw.render_word(canvas, title, title_x, title_y, font=title_font)
-
-        # Underline beneath title
+    def __init__(self, cfg, hw): self.cfg, self.hw = cfg, hw
+    def render(self, canvas, lines, title, y):
+        f, tf = self.hw._load_font(self.cfg.header_font_size), self.hw._load_font(self.cfg.title_font_size)
+        cx = (self.cfg.text_start_x + self.cfg.text_max_x) // 2
+        for l in lines:
+            self.hw.render_word(canvas, l, cx - round(f.getlength(l)) // 2, y, font=f)
+            y += self.cfg.header_line_spacing
+        tx = cx - round(tf.getlength(title)) // 2
+        self.hw.render_word(canvas, title, tx, y, font=tf)
         ink = self.hw._get_jittered_ink()
-        underline_y = title_y + 8
-        # Fix 9: Use _np_rng instead of _rng for wobble
-        points = []
-        for px in range(title_x - 5, title_x + title_w + 5, 6):
-            wobble = int(self.hw._np_rng.integers(-1, 2))  # [-1, 0, 1]
-            points.append((px, underline_y + wobble))
-        if len(points) >= 2:
-            draw.line(points, fill=ink, width=2)
+        pts = [(px, y + 8 + int(self.hw._np_rng.integers(-1, 2))) for px in range(tx-5, tx+round(tf.getlength(title))+5, 6)]
+        if len(pts) >= 2: ImageDraw.Draw(canvas).line(pts, fill=ink, width=2)
+        return y + self.cfg.header_line_spacing + 20
 
-        curr_y += self.cfg.header_line_spacing + 20
-        return curr_y
+def _snap_to_ruled_line(y, cfg):
+    if y <= cfg.first_line_y: return cfg.first_line_y
+    return cfg.first_line_y + math.ceil((y - cfg.first_line_y) / cfg.line_spacing) * cfg.line_spacing
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HELPER: snap to ruled line
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _snap_to_ruled_line(y: int, cfg: NotebookConfig) -> int:
-    """Snap a y-coordinate to the next ruled line at or after y."""
-    if y <= cfg.first_line_y:
-        return cfg.first_line_y
-    lines_past = (y - cfg.first_line_y) / cfg.line_spacing
-    next_idx = math.ceil(lines_past)
-    return cfg.first_line_y + next_idx * cfg.line_spacing
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# MAIN COMPOSITION
-# ─────────────────────────────────────────────────────────────────────────────
-
-def render_notebook_page(
-    body_text: str,
-    output_path: str = "output/phase2/rendered_page.png",
-    title: str = "My Assignment",
-    header_lines: Optional[List[str]] = None,
-    seed: int = 42,
-    config: Optional[NotebookConfig] = None,
-) -> str:
+def forensic_post_process(img_bgr: np.ndarray, fiber_map: np.ndarray) -> np.ndarray:
     """
-    Render text as handwriting on ruled notebook paper.
-
-    Parameters
-    ----------
-    body_text : str
-        The main body text to render as handwriting.
-    output_path : str
-        Where to save the output PNG image.
-    title : str
-        The title of the assignment (rendered centered with underline).
-    header_lines : list[str], optional
-        Lines to render above the title (e.g. class, subject).
-        If None, only the title is rendered.
-    seed : int
-        Random seed for reproducible jitter.
-    config : NotebookConfig, optional
-        Custom configuration. Uses defaults if None.
-
-    Returns
-    -------
-    str : Path to the saved output image.
+    Phase 4: Forensic Camera Simulation and Substrate Physics.
+    Includes Capillary Feathering, Normal-Map Displacement (Pen Grooves), 
+    and Digital Sensor Telemetry (Noise/Chromatic Aberration).
     """
+    h, w = img_bgr.shape[:2]
+    
+    # Pass 1: Capillary Feathering (Simulated bleed into fibers)
+    # Guided blur based on fiber map intensity (ink bleeds where fibers are dense)
+    blur_map = (fiber_map.astype(float) / 255.0) * 0.8
+    feathered = cv2.GaussianBlur(img_bgr, (3, 3), 0)
+    img_post = cv2.addWeighted(img_bgr, 0.7, feathered, 0.3, 0)
+
+    # Pass 2: Normal-Map Displacement (Pen Grooves)
+    # Generate heightmap from luminance variation (inverted ink is "down")
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    heightmap = cv2.GaussianBlur(255 - gray, (5, 5), 0)
+    
+    # Sobel gradients as normals
+    dx = cv2.Sobel(heightmap, cv2.CV_64F, 1, 0, ksize=3)
+    dy = cv2.Sobel(heightmap, cv2.CV_64F, 0, 1, ksize=3)
+    
+    # Virtual Desk Lamp (Top-Left)
+    lx, ly = -1.0, -1.0
+    light_norm = math.sqrt(lx*lx + ly*ly + 1.0)
+    lx /= light_norm; ly /= light_norm; lz = 1.0 / light_norm
+    
+    # Lambertian shading for the groove
+    shading = (dx * lx + dy * ly + lz) * 0.15 # Strength of shadowing
+    shading_img = np.clip(1.0 + shading, 0.85, 1.15)
+    
+    for c in range(3):
+        img_post[:, :, c] = np.clip(img_post[:, :, c] * shading_img, 0, 255)
+
+    # Pass 3: Digital Sensor Telemetry (Chromatic Aberration & Noise)
+    # Split channels
+    b, g, r = cv2.split(img_post)
+    
+    # Shift R/B slightly from center for CA (Reduced for 300DPI realism)
+    center_y, center_x = h // 2, w // 2
+    M_r = np.float32([[1.0002, 0, -center_x*0.0002], [0, 1.0002, -center_y*0.0002]])
+    M_b = np.float32([[0.9998, 0, center_x*0.0002], [0, 0.9998, center_y*0.0002]])
+    
+    r = cv2.warpAffine(r, M_r, (w, h), borderMode=cv2.BORDER_REPLICATE)
+    b = cv2.warpAffine(b, M_b, (w, h), borderMode=cv2.BORDER_REPLICATE)
+    
+    img_post = cv2.merge([b, g, r])
+    
+    # Bayer Pattern Noise simulation
+    noise = np.random.normal(0, 1.5, img_post.shape).astype(np.float32)
+    img_post = np.clip(img_post.astype(float) + noise, 0, 255).astype(np.uint8)
+    
+    # Pass 4: Environmental Hand Shadow (Large-scale gradient)
+    # Simulate the photographer or hand casting a soft shadow over the page
+    shadow_mask = np.ones((h, w), dtype=np.float32)
+    center_y, center_x = h // 2, w // 2
+    # Gradient from top-left to bottom-right or similar
+    yy, xx = np.mgrid[:h, :w]
+    # Simple linear shadow from a corner
+    shadow_grad = (yy / float(h) + xx / float(w)) * 0.05
+    shadow_mask = np.clip(1.0 - shadow_grad, 0.90, 1.0) # Subtle 10% attenuation
+    
+    # Also add a "blobi" shadow (closer hand/phone)
+    cv2.circle(shadow_mask, (int(w*0.8), int(h*0.2)), int(w*0.4), 0.95, -1)
+    shadow_mask = cv2.GaussianBlur(shadow_mask, (151, 151), 0)
+    
+    for c in range(3):
+        img_post[:, :, c] = np.clip(img_post[:, :, c] * shadow_mask, 0, 255)
+
+    return img_post
+
+def render_notebook_page(body_text, output_path="output/rendered_page.png", 
+                         title="Assignment", header_lines=None, seed=42, 
+                         config=None, masterpiece=False):
     cfg = config or NotebookConfig()
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # 1. Generate paper background
-    paper_gen = PaperGenerator(cfg)
-    canvas = paper_gen.generate()
-
-    # 2. Initialize rendering engines
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    
+    # Preparations
+    paper_canvas = PaperGenerator(cfg).generate()
     hw = HandwritingRenderer(cfg, seed=seed)
     layout = TextLayoutEngine(cfg)
-    header_render = HeaderRenderer(cfg, hw)
+    
+    # Masterpiece Substrate setup
+    masterpiece_canvas = None
+    groove_canvas = None
+    fiber_map = None
+    if masterpiece:
+        masterpiece_canvas = np.zeros((cfg.page_h, cfg.page_w, 4), dtype=np.uint8)
+        groove_canvas = np.zeros((cfg.page_h, cfg.page_w), dtype=np.uint8)
+        fiber_map = generate_fiber_map(cfg.page_w, cfg.page_h)
 
-    # 3. Render header
-    if header_lines is None:
-        header_lines = []
+    # Apply style preset modifiers
+    if cfg.style == 'messy':
+        cfg.variation_magnitude = 0.06
+        cfg.drift_intensity = 3.5
+        cfg.margin_panic_strength = 0.4
+        cfg.fatigue_slant_rate = 0.05
+    elif cfg.style == 'neat':
+        cfg.variation_magnitude = 0.015
+        cfg.drift_intensity = 0.6
+        cfg.margin_panic_strength = 0.1
+        cfg.fatigue_slant_rate = 0.01
 
-    curr_y = cfg.first_line_y
-    if header_lines or title:
-        curr_y = header_render.render(canvas, header_lines, title, curr_y)
-
-    # Snap to next ruled line after header
-    curr_y = _snap_to_ruled_line(curr_y, cfg)
-    # Add one extra line gap below header
-    curr_y += cfg.line_spacing
-
-    # 4. Render body text
-    font = hw._load_font(cfg.body_font_size)
-    max_text_width = cfg.text_max_x - cfg.text_start_x
-
-    # Split into paragraphs
-    paragraphs = [p.strip() for p in body_text.split("\n") if p.strip()]
-
-    for para_idx, paragraph in enumerate(paragraphs):
-        wrapped = layout.wrap_text(paragraph, font, max_text_width)
-
-        for line_idx, line_text in enumerate(wrapped):
-            if curr_y > cfg.page_h - 200:
-                break
-
-            # Indent first line of each paragraph
-            indent = 80 if line_idx == 0 else 0
-            cursor_x = cfg.text_start_x + indent
-
-            # Fix 6: Pre-compute per-CHARACTER baseline wander for entire line
-            words = line_text.split()
-            total_chars = sum(len(w) for w in words) + len(words)
-            line_wander = hw.get_line_wander(max(1, total_chars))
-            char_idx = 0
-
-            for word in words:
-                # Check if word fits before rendering (measure first)
-                word_w = font.getlength(word)
-                if cursor_x + word_w > cfg.text_max_x:
-                    break
-
-                # Fix 6: Slice wander array for THIS word's characters
-                w_start = char_idx
-                w_end = min(char_idx + len(word), len(line_wander))
-                word_wander = line_wander[w_start:w_end]
-
-                adv = hw.render_word(
-                    canvas, word, cursor_x, curr_y,
-                    wander_offsets=word_wander,
+    y = _snap_to_ruled_line(HeaderRenderer(cfg, hw).render(paper_canvas, header_lines or [], title, cfg.first_line_y), cfg) + cfg.line_spacing
+    f = hw._load_font(cfg.body_font_size)
+    
+    line_count = 0
+    for p in [p.strip() for p in body_text.split("\n") if p.strip()]:
+        for i, line in enumerate(layout.wrap_text(p, f, cfg.text_max_x - cfg.text_start_x)):
+            if y > cfg.page_h - 200: break
+            cx = cfg.text_start_x + (80 if i == 0 else 0)
+            words = line.split()
+            
+            total_chars = sum(len(w) for w in words)
+            # Apply Style-Driven drift intensity to wander
+            wander = hw.get_line_wander(max(1, total_chars)) * cfg.drift_intensity
+            
+            # Word-level drift (accumulate over line)
+            word_drift = 0.0
+            
+            c_idx = 0
+            for w_idx, w in enumerate(words):
+                if cx + f.getlength(w) * 1.10 > cfg.text_max_x: break
+                
+                # Right-Margin Panic: Compress spacing as we reach the right edge
+                dist_to_margin = cfg.text_max_x - (cx + f.getlength(w))
+                panic_factor = 1.0
+                if dist_to_margin < 400:
+                    panic_factor -= (1.0 - (dist_to_margin / 400.0)) * cfg.margin_panic_strength
+                
+                # Apply word-level dipping
+                word_drift += hw._np_rng.normal(0, cfg.drift_intensity * 0.5)
+                
+                word_advance = hw.render_word(
+                    paper_canvas, w, cx, y, 
+                    wander_offsets=wander[c_idx:c_idx+len(w)],
+                    baseline_offset=word_drift,
+                    masterpiece_canvas=masterpiece_canvas,
+                    groove_canvas=groove_canvas,
+                    fiber_map=fiber_map
                 )
-                char_idx += len(word) + 1  # +1 for the space
 
-                # Fix 8: Use public method for word spacing noise
-                space = round(cfg.word_spacing_base * hw.word_spacing_noise())
-                cursor_x += adv + space
+                # Apply Panic to word spacing
+                word_spacing = round(cfg.word_spacing_base * hw.word_spacing_noise() * panic_factor)
+                cx += word_advance + word_spacing
+                c_idx += len(w)
+                
+            y += cfg.line_spacing
+            line_count += 1
+            # Adjust global bias dynamically based on fatigue slant
+            hw._mixture = make_default_mixture(bias=cfg.bias + (line_count * cfg.fatigue_slant_rate), rng=hw._np_rng)
+            
+        y = _snap_to_ruled_line(y + cfg.line_spacing, cfg)
 
-            # Move to next ruled line
-            curr_y += cfg.line_spacing
-
-        # Fix 4: Paragraph gap — skip a full line, then snap to ruled grid
-        curr_y += cfg.line_spacing
-        curr_y = _snap_to_ruled_line(curr_y, cfg)
-
-    # 5. Save output (convert RGBA → RGB for PNG)
-    final = canvas.convert("RGB")
-    final.save(str(output_path), "PNG")
-    print(f"  [OK] Notebook page rendered: {output_path}")
-    return str(output_path)
-
-
-def render_notebook_multi_page(
-    body_text: str,
-    output_dir: str = "assignments",
-    title: str = "My Assignment",
-    header_lines: Optional[List[str]] = None,
-    seed: int = 42,
-    config: Optional[NotebookConfig] = None,
-) -> List[str]:
-    """
-    Multi-page renderer: splits long text across pages.
-    Returns a list of output file paths.
-    """
-    cfg = config or NotebookConfig()
-
-    # Fix 10: Load font directly — no throwaway HandwritingRenderer
-    font_dir = Path(cfg.font_dir)
-    font_path = font_dir / cfg.primary_font
-    if font_path.exists():
-        font = ImageFont.truetype(str(font_path), cfg.body_font_size)
+    # FINAL COMPOSITION
+    if masterpiece and masterpiece_canvas is not None:
+        # v8.0 Post-Rendering: Capillary Wicking
+        hw.pbi_engine.apply_capillary_wicking(masterpiece_canvas, fiber_map)
+        
+        # Convert paper to BGR for CV2
+        img_bgr = cv2.cvtColor(np.array(paper_canvas.convert("RGB")), cv2.COLOR_RGB2BGR)
+        
+        # Alpha Blending of Particle Layer
+        alpha = masterpiece_canvas[:, :, 3] / 255.0
+        for c in range(3):
+            img_bgr[:, :, c] = (alpha * masterpiece_canvas[:, :, c] + (1.0 - alpha) * img_bgr[:, :, c]).astype(np.uint8)
+        
+        # Phase 4 Post-Processing
+        final_img = forensic_post_process(img_bgr, fiber_map)
+        cv2.imwrite(output_path, final_img, [cv2.IMWRITE_PNG_COMPRESSION, 4])
     else:
-        font = ImageFont.load_default()
-
-    # Estimate capacity: roughly how many words fit per page
-    usable_lines = (cfg.page_h - cfg.first_line_y - 200) // cfg.line_spacing
-    avg_word_w = font.getlength("average ")
-    words_per_line = int((cfg.text_max_x - cfg.text_start_x) / avg_word_w)
-    words_per_page = usable_lines * words_per_line
-
-    words = body_text.split()
-    pages_text = []
-    for i in range(0, len(words), words_per_page):
-        chunk = " ".join(words[i:i + words_per_page])
-        pages_text.append(chunk)
-
-    if not pages_text:
-        pages_text = [body_text]
-
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    results = []
-
-    for page_num, page_text in enumerate(pages_text):
-        out_path = output_dir / f"page_{page_num + 1:02d}.png"
-        page_title = title if page_num == 0 else f"{title} (cont.)"
-        page_headers = header_lines if page_num == 0 else None
-
-        render_notebook_page(
-            body_text=page_text,
-            output_path=str(out_path),
-            title=page_title,
-            header_lines=page_headers,
-            seed=seed + page_num * 7,
-            config=cfg,
-        )
-        results.append(str(out_path))
-
-    return results
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# STANDALONE TEST
-# ─────────────────────────────────────────────────────────────────────────────
+        # Fast Path
+        paper_canvas.convert("RGB").save(output_path, "PNG")
+        
+    return output_path
 
 if __name__ == "__main__":
-    TEST_HEADER = [
-        "2nd Week Assignment",
-        "Class - 06",
-        "Study Express",
-        "Sub: English",
-    ]
-    TEST_TITLE = "My First Day at School"
-    TEST_BODY = (
-        "My first day at school is one of the most memorable days of my life. "
-        "The day was Sunday 1 January 2012. I went to a nearby Primary School "
-        "with my father. I had many unknown fears. After reaching school, I saw "
-        "some student were playing in the field. Then we went to the Headmaster's "
-        "office. There we met some teachers. A teacher took us to my classroom. "
-        "When my father left me in the class I understood that I was in a new "
-        "and unknown world. Soon all of the students joined a assembly. Then we "
-        "returned to the class. After a class my teacher took entered the class. "
-        "He told us about many rules and important things."
-    )
-
-    result = render_notebook_page(
-        body_text=TEST_BODY,
-        output_path="output/test_notebook.png",
-        title=TEST_TITLE,
-        header_lines=TEST_HEADER,
-        seed=42,
-    )
-    print(f"Test render complete: {result}")
+    render_notebook_page("This is a stability test. No more flying letters.", output_path="output/test_v21_restore.png")

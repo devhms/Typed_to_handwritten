@@ -1,12 +1,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║    BIO-KINEMATIC MOTOR ENGINE  v7.0 (The Muscle)                             ║
+║    BIO-KINEMATIC MOTOR ENGINE  v8.0 (The Muscle)                             ║
 ║    "Handwriting is not drawing; it is movement" — Sigma-Lognormal Model      ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║  CORE PRINCIPLES:                                                            ║
 ║  1. STROKE PRIMITIVES: Movements are decomposed into lognormal impulses.     ║
-║  2. VELOCITY-CURVATURE: The hand slows down in curves (UCM Law).             ║
-║  3. RECOIL & DRIFT: Modeling muscular fatigue and spring-like transitions.   ║
+║  2. TWO-THIRDS POWER LAW: Angular velocity scales with curvature.            ║
+║  3. FRACTAL TREMOR: 1/f noise models neuromuscular oscillation.              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -39,6 +39,19 @@ class SigmaLognormalStroke:
 class BioKinematicEngine:
     def __init__(self, seed=555):
         self.rng = np.random.default_rng(seed)
+
+    def _generate_fractal_noise(self, length, alpha=1.5):
+        """Generates 1/f^alpha noise using spectral filtering."""
+        white_noise = self.rng.normal(0, 1, length)
+        freqs = np.fft.rfftfreq(length)
+        # Filter: 1 / f^(alpha/2)
+        # Replace 0 frequency with small value to avoid division by zero
+        weights = np.where(freqs == 0, 1.0, freqs**(-alpha/2.0))
+        weights[0] = 0 # DC component
+        fft_white = np.fft.rfft(white_noise)
+        fft_filtered = fft_white * weights
+        noise = np.fft.irfft(fft_filtered, n=length)
+        return noise / (np.std(noise) + 1e-8)
 
     def generate_human_stroke(self, points, total_time=1.0, sampling_rate=200, style_drift=None):
         """
@@ -107,30 +120,43 @@ class BioKinematicEngine:
             
             path_v.append(total_v)
 
-        # 3. Apply Micro-Tremor (Pink Noise 1/f Logic)
-        # Replacing digital sine with stochastic human tremor
+                # 3. Apply Micro-Tremor (Fractal 1/f Logic)
+        # v8.0: Replacing cumulative sum with true spectral fractal noise
         path_x = np.array(path_x)
         path_y = np.array(path_y)
-        path_v = np.array(path_v) # FIX: convert to array
+        path_v = np.array(path_v)
         
-        # Simple Pink Noise approximation via cumulative sum of normal noise
-        pink_noise_x = np.cumsum(self.rng.normal(0, 0.001, sampling_rate))
-        pink_noise_y = np.cumsum(self.rng.normal(0, 0.001, sampling_rate))
+        tremor_x = self._generate_fractal_noise(sampling_rate, alpha=1.2)
+        tremor_y = self._generate_fractal_noise(sampling_rate, alpha=1.2)
         
-        # Band-pass filter to keep it in the 5-15Hz range (Human tremor)
-        path_x += pink_noise_x * 0.003
-        path_y += pink_noise_y * 0.003
+        # Scale tremor by velocity (more tremor at lower speeds/starts)
+        tremor_scale = 0.002 * (1.0 + 1.0 / (0.1 + path_v))
+        path_x += tremor_x * tremor_scale
+        path_y += tremor_y * tremor_scale
         
-        # 4. Velocity-Pressure Coupling Pre-calc
-        # Curvature-based weight: Hand slows down + presses harder in tight turns
+        # 4. Two-Thirds Power Law & Pressure Coupling
+        # v8.0: Re-calculating curvature for power-law velocity adjustment
         dx = np.gradient(path_x)
         dy = np.gradient(path_y)
         ddx = np.gradient(dx)
         ddy = np.gradient(dy)
+        
+        # Curvature kappa
         curvature = np.abs(dx * ddy - dy * ddx) / (dx**2 + dy**2 + 1e-6)**1.5
         
-        # Create a 'pressure' channel (v4)
-        pressure = (1.0 / (0.5 + path_v)) * (1.0 + curvature * 0.5)
+        # Apply Power Law slowdown: V_adj = V * (1 + kappa)^-0.33
+        velocity_modulation = (1.0 + curvature)**(-0.33)
+        path_v *= velocity_modulation
+        
+        # Create a 'pressure' channel (v8.0)
+        # Pressure increases with curvature and decreases with velocity
+        pressure = (1.2 / (1.0 + path_v)) * (1.0 + curvature * 0.4)
+        
+        # 5. Non-linear Baseline Drift (The Pivot)
+        # Simulating the arm pivoting around the elbow/wrist
+        drift_t = np.linspace(0, 1, sampling_rate)
+        pivot_drift = 0.05 * np.sin(drift_t * np.pi) # Simple arc
+        path_y += pivot_drift
         
         return np.stack([path_x, path_y, path_v, pressure], axis=1)
 

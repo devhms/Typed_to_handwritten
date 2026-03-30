@@ -20,7 +20,8 @@ SOURCES (exact file → line):
 import math
 import random
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+import cv2
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -260,8 +261,38 @@ def generate_line_baseline_wander(
                                      bias=bias, rng=rng)
 
 
+def apply_elastic_warp(image: Image.Image, magnitude: float = 0.02, rng=None) -> Image.Image:
+    """
+    Mechanism 10: Stochastic Mesh Warping.
+    Applies a low-frequency, random displacement field to the glyph.
+    """
+    if magnitude < 0.001: return image
+    if rng is None: rng = np.random.default_rng()
+    
+    img_arr = np.array(image)
+    h, w = img_arr.shape[:2]
+    
+    # Create low-res displacement grid (e.g. 3x3 control points)
+    grid_size = 4
+    dx_grid = rng.normal(0, w * magnitude, (grid_size, grid_size))
+    dy_grid = rng.normal(0, h * magnitude, (grid_size, grid_size))
+    
+    # Upscale displacement maps to full resolution
+    dx_map = cv2.resize(dx_grid, (w, h), interpolation=cv2.INTER_CUBIC)
+    dy_map = cv2.resize(dy_grid, (w, h), interpolation=cv2.INTER_CUBIC)
+    
+    # Create meshgrid
+    x, y = np.meshgrid(np.arange(w), np.arange(h))
+    map_x = (x + dx_map).astype(np.float32)
+    map_y = (y + dy_map).astype(np.float32)
+    
+    # Remap image (vectorized deformation)
+    warped = cv2.remap(img_arr, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    return Image.fromarray(warped)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# MECHANISM 9 — PER-CHARACTER AFFINE PERTURBATION
+# MECHANISM 11 — PER-CHARACTER AFFINE PERTURBATION (Revised)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def perturb_glyph_mask(
@@ -271,30 +302,41 @@ def perturb_glyph_mask(
     rotation: float,
     scale: float,
     anchor_bottom: bool = True,
+    variation_magnitude: float = 0.0,
+    rng=None,
 ) -> tuple:
     """
     Applies per-character perturbation to a PIL glyph mask image.
+    Now includes Stochastic Mesh Warping and accurate spatial offset tracking.
     """
     w, h = glyph.size
 
+    # 1. Elastic Warp (Bio-Kinematic unique geometry)
+    if variation_magnitude > 0:
+        glyph = apply_elastic_warp(glyph, magnitude=variation_magnitude, rng=rng)
+
+    # 2. Scale
     if abs(scale - 1.0) > 0.005:
         new_w = max(1, int(w * scale))
         new_h = max(1, int(h * scale))
         glyph = glyph.resize((new_w, new_h), Image.LANCZOS)
-        w, h = new_w, new_h
+        w, h = glyph.size
 
+    # 3. Rotate
+    shift_x, shift_y = 0.0, 0.0
     if abs(rotation) > 0.05:
-        if anchor_bottom:
-            cx = w / 2
-            cy = h - 2
-        else:
-            cx, cy = w / 2, h / 2
+        cx, cy = (w / 2, h - 2) if anchor_bottom else (w / 2, h / 2)
+        
+        # Capture expansion shift
+        rotated = glyph.rotate(-rotation, resample=Image.BICUBIC, center=(cx, cy), expand=True)
+        nw, nh = rotated.size
+        
+        # Calculate coordinate shift: The original center (cx, cy) is moved 
+        # to the center of the NEW image (nw/2, nh/2) if we use expand=True 
+        # and default centered rotation logic.
+        shift_x = (nw - w) / 2.0
+        shift_y = (nh - h) / 2.0
+        
+        glyph = rotated
 
-        glyph = glyph.rotate(
-            -rotation,
-            resample=Image.BICUBIC,
-            center=(cx, cy),
-            expand=True,
-        )
-
-    return glyph, int(round(dx)), int(round(dy))
+    return glyph, dx + shift_x, dy + shift_y

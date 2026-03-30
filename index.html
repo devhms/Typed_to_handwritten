@@ -37,8 +37,20 @@
             display: flex;
             justify-content: center;
             padding: 2rem;
-            overflow: hidden;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--brand) var(--bg);
         }
+
+        /* UI-UX PRO MAX: Premium Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { 
+            background: var(--border); 
+            border-radius: 10px;
+            transition: background 0.3s;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: var(--brand); }
 
         /* ─────────────────────────────────────────────────────────────────────────────
            UI/UX PRO MAX: BENTO ARCHITECTURE

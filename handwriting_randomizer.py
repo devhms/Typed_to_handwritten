@@ -308,50 +308,58 @@ def perturb_glyph_mask(
     rng=None,
 ) -> tuple:
     """
-    Applies per-character perturbation to a PIL glyph mask image.
-    If pivot_x/y are provided, rotates around that point.
-    Returns (glyph, final_dx, final_dy).
+    Mechanism 11 (v8.5): High-Precision Geometric Grounding.
+    Applies per-character affine perturbations while locking the pivot (baseline) point.
     """
-    w, h = glyph.size
+    w, h = glyph.size # Extract current pixel dimensions of the glyph mask
 
-    # 1. Elastic Warp
+    # 1. Biological Elastic Warping: Simulate non-linear motor tremors (bio-kinematics)
     if variation_magnitude > 0:
         glyph = apply_elastic_warp(glyph, magnitude=variation_magnitude, rng=rng)
 
-    # 2. Scale
-    if abs(scale - 1.0) > 0.005:
-        new_w = max(1, int(w * scale))
-        new_h = max(1, int(h * scale))
-        glyph = glyph.resize((new_w, new_h), Image.LANCZOS)
-        # Update pivot positions proportionally
-        if pivot_x is not None: pivot_x *= scale
+    # 2. Euclidean Scaling: Simulate variable handwriting size/pressure
+    if abs(scale - 1.0) > 0.005: 
+        new_w = max(1, int(w * scale)) # Calculate new width constraint
+        new_h = max(1, int(h * scale)) # Calculate new height constraint
+        glyph = glyph.resize((new_w, new_h), Image.LANCZOS) # Perform high-fidelity resampling
+        
+        # Proportional Pivot Update: Ensure the baseline anchor scales with the glyph
+        if pivot_x is not None: pivot_x *= scale 
         if pivot_y is not None: pivot_y *= scale
-        w, h = glyph.size
+        w, h = glyph.size # Update working dimensions post-scale
 
-    # 3. Rotate (Precision Pivot Mapping)
+    # 3. Precision Rotation: Forensic Pivot Mapping (Prevents "Floating" Characters)
     shift_x, shift_y = 0.0, 0.0
     if abs(rotation) > 0.05:
-        # Default pivot is bottom-center if not provided
-        cx = pivot_x if pivot_x is not None else w / 2.0
-        cy = pivot_y if pivot_y is not None else h - 2.0
+        # Determine the Pivot Point (P) around which rotation occurs
+        # If no pivot specified, default to bottom-center of the character
+        cx = pivot_x if pivot_x is not None else w / 2.0 
+        cy = pivot_y if pivot_y is not None else h - 2.0 
         
+        # Perform Rotation: Use PIL's expand=True, which centers the result in a new larger canvas
         rotated = glyph.rotate(-rotation, resample=Image.BICUBIC, center=(cx, cy), expand=True)
-        nw, nh = rotated.size
+        nw, nh = rotated.size # Get dimensions of the expanded canvas
         
-        # Exact geometric pivot tracking
-        rad = math.radians(rotation)
-        cos_t, sin_t = math.cos(rad), math.sin(rad)
+        # Geometric Pivot Tracking: Calculate where the original pivot (cx, cy) moved in the expanded space
+        rad = math.radians(rotation) # Convert degrees to radians for trigonometry
+        cos_t, sin_t = math.cos(rad), math.sin(rad) # Pre-calculate rotation components
         
-        vx, vy = cx - w/2.0, cy - h/2.0
+        # Center-to-Pivot Vector (V): Displacement from the old center to the pivot point
+        vx, vy = cx - w/2.0, cy - h/2.0 
+        
+        # Rotate the Vector (V'): Apply the rotation transformation to the relative position
         vx_rot = vx * cos_t - vy * sin_t
         vy_rot = vx * sin_t + vy * cos_t
         
+        # New Pivot Coordinates: Calculate the pivot's new location relative to the NEW center (nw/2, nh/2)
         new_pivot_x = nw/2.0 + vx_rot
         new_pivot_y = nh/2.0 + vy_rot
         
-        shift_x = cx - new_pivot_x
+        # Page-Space Alignment: Calculate the shift required to lock the pivot to its original page coordinates
+        shift_x = cx - new_pivot_x 
         shift_y = cy - new_pivot_y
         
-        glyph = rotated
+        glyph = rotated # Update the glyph with the expanded, precision-aligned rotation
 
+    # Return the transformed mask and the cumulative sub-pixel offsets (px, py)
     return glyph, dx + shift_x, dy + shift_y

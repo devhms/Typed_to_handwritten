@@ -42,15 +42,21 @@
             scrollbar-color: var(--brand) var(--bg);
         }
 
-        /* UI-UX PRO MAX: Premium Custom Scrollbar */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: var(--bg); }
+        /* UI-UX PRO MAX: Premium Custom Scrollbar (v8.2 Extension) */
+        ::-webkit-scrollbar { width: 6px; height: 6px; } /* Slim precision scrollbars for OLED theme */
+        ::-webkit-scrollbar-track { background: var(--bg); } /* Seamless background track for Bento grid */
         ::-webkit-scrollbar-thumb { 
-            background: var(--border); 
-            border-radius: 10px;
-            transition: background 0.3s;
+            background: var(--border); /* Subtle default thumb to match card borders */
+            border-radius: 10px; /* Modern rounded caps for a premium feel */
+            transition: background 0.3s; /* Smooth hover transition for interactivity */
         }
-        ::-webkit-scrollbar-thumb:hover { background: var(--brand); }
+        ::-webkit-scrollbar-thumb:hover { background: var(--brand); } /* High-visibility brand color on hover */
+
+        /* Specific skinning for the Input Buffer textarea to eliminate intrusive default scrollbars */
+        textarea::-webkit-scrollbar { width: 6px; } /* Consistent width with system scrollbars */
+        textarea::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); } /* Darker track for the editor inset */
+        textarea::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; } /* Themed thumb */
+        textarea::-webkit-scrollbar-thumb:hover { background: var(--brand); } /* Hover state sync */
 
         /* ─────────────────────────────────────────────────────────────────────────────
            UI/UX PRO MAX: BENTO ARCHITECTURE
@@ -106,16 +112,21 @@
         }
 
         .profile-card {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid var(--border);
-            padding: 1rem;
-            border-radius: 12px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
+            background: rgba(255,255,255,0.05); /* Increased base opacity for WCAG AA contrast (v8.5) */
+            border: 1px solid var(--border); /* Explicit border for bento-card consistency */
+            padding: 1rem; /* Balanced internal padding */
+            border-radius: 12px; /* High-radius rounding for organic feel */
+            text-align: center; /* Centered label for better scanning */
+            cursor: pointer; /* Change to pointer to signify interactability */
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); /* Enhanced easing for hover / selection */
+            opacity: 0.6; /* Higher inactive opacity to prevent ghosting */
         }
 
-        .profile-card:hover { background: rgba(59, 130, 246, 0.05); transform: translateY(-2px); }
+        .profile-card:hover { 
+            background: rgba(59, 130, 246, 0.1); /* Subtle brand glow on hover */
+            transform: translateY(-2px); /* Vertical displacement for tactile feedback */
+            opacity: 1.0; /* Full visibility on hover focus */
+        }
         .profile-card.active { 
             background: var(--brand); border-color: var(--brand); color: #fff;
             box-shadow: 0 0 20px var(--brand-glow);
@@ -181,7 +192,12 @@
         .forensic-hud { overflow-y: auto; }
 
         .gauge-wrap {
-            position: relative; width: 180px; height: 180px; margin: 1.5rem auto;
+            position: relative; 
+            width: 180px; height: 180px; 
+            margin: 1.5rem auto;
+            display: flex; /* UI-UX PRO MAX: Perfect centering override (v8.5) */
+            justify-content: center; /* Absolute horizontal centering */
+            align-items: center; /* Absolute vertical centering */
         }
         svg.gauge { transform: rotate(-90deg); }
         .gauge-bg { fill: none; stroke: var(--border); stroke-width: 10; }
@@ -398,9 +414,10 @@ Analysis of the power-law coupling reveals a natural curvature-velocity trade-of
         const driftSlider = document.getElementById('driftSlider');
         const tremorSlider = document.getElementById('tremorSlider');
         
-        let debounceTimer;
-        let activeStyle = 'neat';
-        let isSyncing = true;
+        let debounceTimer; // Global timer for input throttling (v8.5)
+        let activeStyle = 'neat'; // Default synthesis style (Neat/Messy)
+        let isSyncing = true; // Connection heartbeat status
+        let isGenerating = false; // Concurrency lock to prevent kernel collisions
 
         // GSAP: Entry Animation
         gsap.from(".bento-card", { 
@@ -421,19 +438,29 @@ Analysis of the power-law coupling reveals a natural curvature-velocity trade-of
             messy: { style: 'messy', tremor: 0.9, drift: 3.5 }
         };
 
+        // ─────────────────────────────────────────────────────────────────────────────
+        // UI-UX PRO MAX: TACTILE PERSONA SYNCHRONIZATION (v8.5)
+        // ─────────────────────────────────────────────────────────────────────────────
         document.querySelectorAll('.profile-card').forEach(card => {
             card.onclick = () => {
-                document.querySelector('.profile-card.active')?.classList.remove('active');
-                card.classList.add('active');
+                // Style Management: Update selection state visually
+                document.querySelector('.profile-card.active')?.classList.remove('active'); // Clear styling from the previous selection
+                card.classList.add('active'); // Apply 'active' glow to the currently clicked persona
                 
-                const p = personas[card.dataset.profile];
-                activeStyle = p.style;
-                tremorSlider.value = p.tremor;
-                driftSlider.value = p.drift;
-                document.getElementById('tremorVal').innerText = p.tremor;
-                document.getElementById('driftVal').innerText = p.drift;
+                // Kinematic Signal Extraction
+                const p = personas[card.dataset.profile]; // Retrieve the motor impulse profile for this writer
+                activeStyle = p.style; // Set the global style (Neat vs Messy) for the PBI renderer
                 
-                triggerSync();
+                // Physical Component Synchronization: Bind cards to sliders
+                tremorSlider.value = p.tremor; // Physically move the 'Tremor' slider thumb
+                driftSlider.value = p.drift; // Physically move the 'Baseline Wander' slider thumb
+                
+                // Telemetry Feedback: Update numerical readouts
+                document.getElementById('tremorVal').innerText = p.tremor; // Update text readout for precision
+                document.getElementById('driftVal').innerText = p.drift; // Update text readout for precision
+                
+                // Sync Event Loop
+                triggerSync(); // Fire the parametric synthesis event
             };
         });
 
@@ -449,16 +476,20 @@ Analysis of the power-law coupling reveals a natural curvature-velocity trade-of
         }
 
         async function generate(isPreview = true) {
-            loader.style.display = isPreview ? 'none' : 'grid';
+            if (isGenerating) return; // UI-UX PRO MAX: Concurrency Lock (v8.5)
+            isGenerating = true; // Prevent overlapping deposition requests
+            
+            // Visual Pipeline: Activate the blueprint-mask to prevent broken icons
+            skeleton.style.display = 'block'; // Show forensic grid blueprint
+            gsap.fromTo(skeleton, { opacity: 0 }, { opacity: 0.4, duration: 0.5 }); // Fade in the blueprint smoothly
+            
             if (!isPreview) {
-                exportBtn.innerText = "PROCESSING_MASTERPIECE...";
-                exportBtn.disabled = true;
-                sensorMode.innerText = "V8_S_FORENSIC";
-                skeleton.style.display = 'block';
-                gsap.fromTo(skeleton, { opacity: 0 }, { opacity: 0.4, duration: 0.5 });
+                exportBtn.innerText = "PROCESSING_MASTERPIECE..."; // Forensic mode feedback
+                exportBtn.disabled = true; // Lock the CTA during final deposition
+                sensorMode.innerText = "V8_S_FORENSIC"; // Elevate system telemetry status
             }
             
-            const startTime = performance.now();
+            const startTime = performance.now(); // Start latency timer for real-time telemetry
             
             try {
                 const response = await fetch('/generate', {
@@ -470,37 +501,36 @@ Analysis of the power-law coupling reveals a natural curvature-velocity trade-of
                         config: {
                             style: activeStyle,
                             drift_intensity: driftSlider.value,
-                            variation_magnitude: tremorSlider.value / 10.0
+                            variation_magnitude: tremorSlider.value / 10.0 // Normalize slider scale to motor engine expectations
                         }
                     })
                 });
                 const data = await response.json();
                 
                 if (data.success) {
-                    previewImg.src = data.image_url + "&t=" + Date.now();
-                    updateUI(data.audit, isPreview);
-                    latencyDisplay.innerText = Math.round(performance.now() - startTime) + "ms";
-                    setSyncStatus(true);
+                    previewImg.src = data.image_url + "&t=" + Date.now(); // Cache-busting image update
+                    updateUI(data.audit, isPreview); // Refresh forensic HUD with new telemetry metrics
+                    latencyDisplay.innerText = Math.round(performance.now() - startTime) + "ms"; // Display actual round-trip latency
+                    setSyncStatus(true); // Confirmation of successful sync loop
                 }
             } catch (err) {
-                console.error(err);
-                setSyncStatus(false);
+                console.error("KERNEL_ERR:", err); // Log forensic telemetry failure
+                setSyncStatus(false); // Alert user to connection drop
             } finally {
-                loader.style.display = 'none';
-                skeleton.style.display = 'none';
+                isGenerating = false; // Release the concurrency lock
+                skeleton.style.display = 'none'; // Fade out the blueprint after PBI deposition
                 if (!isPreview) {
-                    exportBtn.innerText = "GENERATE_HIGH_RES";
-                    exportBtn.disabled = false;
-                    sensorMode.innerText = "V8_S_PREVIEW";
+                    exportBtn.innerText = "GENERATE_HIGH_RES"; // Restore original CTA state
+                    exportBtn.disabled = false; // Unlock for next masterpiece
+                    sensorMode.innerText = "V8_S_PREVIEW"; // Return to standard preview telemetry
                 }
             }
         }
 
         function setSyncStatus(active) {
-            isSyncing = active;
-            syncText.innerText = active ? "SYNCED_PREVIEW_ACTIVE" : "CONNECTION_ERROR";
-            document.getElementById('statusBox').style.color = active ? "var(--success)" : "var(--danger)";
-            gsap.to(syncIndicator, { opacity: active ? 1 : 0.3, duration: 0.3 });
+            isSyncing = active; // Update the global heartbeat state
+            syncText.innerText = active ? "SYNCED_PREVIEW_ACTIVE" : "CONNECTION_ERROR"; // Alert user if kernel connection drops
+            gsap.to(syncIndicator, { opacity: active ? 1 : 0.3, duration: 0.3 }); // Pulse opacity based on sync health
         }
 
         function updateUI(audit, isPreview) {
@@ -547,9 +577,8 @@ Analysis of the power-law coupling reveals a natural curvature-velocity trade-of
             if (!isSyncing) return;
             gsap.fromTo(syncIndicator, { scale: 1, opacity: 1 }, { scale: 1.6, opacity: 0, duration: 1.2, repeat: 1, onComplete: () => setTimeout(pulse, 2000) });
         }
-        pulse();
-        generate(true);
-    </script>
+        pulse(); // Initialize the HUD pulse animation
+        generate(true); // Perform initial kinematic deposition on boot
     </script>
 </body>
 </html>

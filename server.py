@@ -35,31 +35,47 @@ class SovereignServerHandler(http.server.SimpleHTTPRequestHandler):
             config_data = data.get('config', {})
             style = config_data.get('style', 'neat')
             
+            # ─────────────────────────────────────────────────────────────────────────────
+            # UI-UX PRO MAX: BLOCK-BASED DOCUMENT PARSER (v8.5)
+            # ─────────────────────────────────────────────────────────────────────────────
+            # Instead of a simple split, we parse the buffer into a structured layout model.
+            
+            blocks = [] # Container for the forensic document model (v8.5)
+            # Split input buffer while preserving empty line intent for paragraph control
+            for line in text.split('\n'):
+                stripped = line.strip()
+                if stripped.startswith('# '):
+                    # Header Level 1: Map to 'Engineer' style fonts in the renderer
+                    blocks.append({'type': 'header', 'content': stripped[2:], 'level': 1})
+                elif stripped.startswith('## '):
+                    # Header Level 2: Sub-headers for structured assignments
+                    blocks.append({'type': 'header', 'content': stripped[3:], 'level': 2})
+                elif not stripped:
+                    # Explicit Vertical Spacer: Preserve user intent for paragraph breaks
+                    blocks.append({'type': 'spacer', 'content': ''})
+                else:
+                    # Standard Paragraph: The core body of the document
+                    blocks.append({'type': 'paragraph', 'content': stripped})
+            
             try:
-                # 1. Update Config Object
+                # 1. Update Config Object with Sliders
                 cfg = NotebookConfig(style=style)
-                # Override with explicit sliders if provided
                 if 'drift_intensity' in config_data:
-                    cfg.drift_intensity = float(config_data['drift_intensity'])
+                    cfg.drift_intensity = float(config_data['drift_intensity']) # Override with user telemetry
                 if 'variation_magnitude' in config_data:
-                    cfg.variation_magnitude = float(config_data['variation_magnitude'])
+                    cfg.variation_magnitude = float(config_data['variation_magnitude']) # Override with user telemetry
                 
-                # 2. Extract title/body
-                lines = text.strip().split('\n')
-                title_line = lines[0].strip() if lines else title
-                body = '\n'.join(lines[1:]).strip() if len(lines) > 1 else text
+                # 2. Rendering Selection (Preview vs Masterpiece)
+                output_name = "notebook_preview.png" if is_preview else "notebook_final.png" # Context-aware filenames
+                final_path = Path("assignments") / output_name # Ensure high-resolution artifacts are stored centrally
                 
-                # 3. Render (Masterpiece mode only for final high-res)
-                output_name = "notebook_preview.png" if is_preview else "notebook_final.png"
-                final_path = Path("assignments") / output_name
-                
+                # Perform the Synthesis with the new Document Model
                 render_notebook_page(
-                    body_text=body,
-                    output_path=str(final_path),
-                    title=title_line,
-                    seed=42,
-                    config=cfg,
-                    masterpiece=not is_preview
+                    document_blocks=blocks, # Pass the structured block model instead of flat text (v8.5 Refactor)
+                    output_path=str(final_path), # Final write location
+                    seed=42, # Static seed for deterministic forensic evaluation
+                    config=cfg, # The kinematic profile selected via the Bento UI
+                    masterpiece=not is_preview # Elevate to PBI-Physics mode only for high-res exports
                 )
                 
                 # 4. Forensic Audit (Skip or use lightweight mode for previews)

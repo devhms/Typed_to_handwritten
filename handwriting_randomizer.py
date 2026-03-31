@@ -19,6 +19,7 @@ SOURCES (exact file → line):
 
 import math
 import random
+from typing import Optional, Tuple, List, Dict # UI-UX PRO MAX: Advanced Forensic Typing (v8.5)
 import numpy as np
 import cv2
 from PIL import Image, ImageDraw, ImageFilter, ImageOps

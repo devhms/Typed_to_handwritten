@@ -253,52 +253,130 @@ def forensic_post_process(img_bgr: np.ndarray, fiber_map: np.ndarray) -> np.ndar
     for c in range(3): img_post[:, :, c] = np.clip(img_post[:, :, c] * shadow_mask, 0, 255)
     return img_post
 
-def render_notebook_page(body_text, output_path="output/rendered_page.png", title="Assignment", header_lines=None, seed=42, config=None, masterpiece=False):
-    cfg = config or NotebookConfig()
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    paper_canvas = PaperGenerator(cfg).generate()
-    hw = HandwritingRenderer(cfg, seed=seed)
-    layout = TextLayoutEngine(cfg)
+def render_notebook_page(document_blocks, output_path="output/rendered_page.png", seed=42, config=None, masterpiece=False):
+    """
+    UI-UX PRO MAX: DOCUMENT BLOCK RENDERER (v8.5)
+    Orchestrates the synthesis of complex structured documents (Headings, Paras, Spacers).
+    """
+    cfg = config or NotebookConfig() # Load current kinematic and layout configuration
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True) # Ensure assignment directory exists
+    
+    # Core Infrastructure Initialization
+    paper_canvas = PaperGenerator(cfg).generate() # Deposit the ruled paper substrate
+    hw = HandwritingRenderer(cfg, seed=seed) # Initialize the motor impulse motor
+    layout = TextLayoutEngine(cfg) # Initialize the semantic wrap engine
+    
+    # High-Resolution Masterpiece Components
     masterpiece_canvas, groove_canvas, fiber_map = None, None, None
     if masterpiece:
-        masterpiece_canvas = np.zeros((cfg.page_h, cfg.page_w, 4), dtype=np.uint8)
-        groove_canvas = np.zeros((cfg.page_h, cfg.page_w), dtype=np.uint8)
-        fiber_map = generate_fiber_map(cfg.page_w, cfg.page_h)
+        masterpiece_canvas = np.zeros((cfg.page_h, cfg.page_w, 4), dtype=np.uint8) # Particle ink layer
+        groove_canvas = np.zeros((cfg.page_h, cfg.page_w), dtype=np.uint8) # Paper crush (groove) layer
+        fiber_map = generate_fiber_map(cfg.page_w, cfg.page_h) # Substrate fiber distribution
+    
+    # Style Profile Calibration: Apply non-linear modifiers based on persona
     if cfg.style == 'messy':
+        # Persona: MESSY - Elevated tremor and loose drift tracking
         cfg.variation_magnitude, cfg.drift_intensity, cfg.margin_panic_strength, cfg.fatigue_slant_rate = 0.06, 3.5, 0.4, 0.05
     elif cfg.style == 'neat':
+        # Persona: NATURAL - Refined motor control and stable baseline
         cfg.variation_magnitude, cfg.drift_intensity, cfg.margin_panic_strength, cfg.fatigue_slant_rate = 0.015, 0.6, 0.1, 0.01
-    y = _snap_to_ruled_line(HeaderRenderer(cfg, hw).render(paper_canvas, header_lines or [], title, cfg.first_line_y), cfg) + cfg.line_spacing
-    f = hw._load_font(cfg.body_font_size)
-    line_count = 0
-    for p in [pa.strip() for pa in body_text.split("\n") if pa.strip()]:
-        for i, line in enumerate(layout.wrap_text(p, f, cfg.text_max_x - cfg.text_start_x)):
-            if y > cfg.page_h - 200: break
-            cx = cfg.text_start_x + (80 if i == 0 else 0)
+
+    # Vertical Layout Cursor Initialization
+    y = cfg.first_line_y # Start at the first ruled line
+    body_font = hw._load_font(cfg.body_font_size) # Default writing style (Natural)
+    # 2026 Insight: Style-switching for headers (Engineer Style)
+    header_font = hw._load_font(cfg.header_font_size) # Use IndieFlower/Kalam for headers if configured
+    
+    line_count = 0 # Track lines for fatigue/drift calculation
+    
+    # ─────────────────────────────────────────────────────────────────────────────
+    # THE DOCUMENT SYNTHESIS LOOP (Block-by-Block Processing)
+    # ─────────────────────────────────────────────────────────────────────────────
+    for block in document_blocks:
+        b_type = block['type']
+        content = block['content']
+        
+        if b_type == 'spacer':
+            # Intent: Double paragraph break or vertical emphasis
+            y += cfg.line_spacing # Advance the cursor one ruled line
+            continue
+            
+        # Font & Spacing Selection for this specific block (v8.5 Logic)
+        is_header = b_type == 'header'
+        # Selection: Headers use 'Engineer' metadata (larger footprint)
+        current_font = header_font if is_header else body_font
+        # Selection: Headers are centered or bolded in behavior
+        is_centered = is_header and block.get('level') == 1
+        
+        # Word Wrapping: Partition the block content into renderable lines
+        wrapped_lines = layout.wrap_text(content, current_font, cfg.text_max_x - cfg.text_start_x)
+        
+        for i, line in enumerate(wrapped_lines):
+            if y > cfg.page_h - 200: break # Page safety constraint
+            
+            # Horizontal Positioning Logic
+            if is_centered:
+                # Center-Align for Level 1 Headings
+                center_x = (cfg.text_start_x + cfg.text_max_x) // 2
+                cx = center_x - round(current_font.getlength(line)) // 2
+            else:
+                # Standard Left-Align with Organic Indent for first-line paragraphs
+                cx = cfg.text_start_x + (80 if (i == 0 and not is_header) else 0)
+            
             words = line.split()
             c_idx, word_drift = 0, 0.0
+            # Generate the stochastic wander vector for this line
             wander = hw.get_line_wander(max(1, sum(len(w) for w in words))) * cfg.drift_intensity
+            
             for w in words:
-                if cx + f.getlength(w) * 1.10 > cfg.text_max_x: break
-                dist_to_margin = cfg.text_max_x - (cx + f.getlength(w))
+                if cx + current_font.getlength(w) * 1.10 > cfg.text_max_x: break # Margin safety
+                # Right-Margin Panic: Simulate hand slowing down/compacting text
+                dist_to_margin = cfg.text_max_x - (cx + current_font.getlength(w))
                 panic_factor = 1.0 - (1.0 - (dist_to_margin / 400.0)) * cfg.margin_panic_strength if dist_to_margin < 400 else 1.0
+                # Per-Word Dipping: Simulate the hand adjusting for line wander
                 word_drift += hw._np_rng.normal(0, cfg.drift_intensity * 0.5)
-                word_advance = hw.render_word(paper_canvas, w, cx, y, wander_offsets=wander[c_idx:c_idx+len(w)], baseline_offset=word_drift, masterpiece_canvas=masterpiece_canvas, groove_canvas=groove_canvas, fiber_map=fiber_map)
-                cx += word_advance + round(cfg.word_spacing_base * hw.word_spacing_noise() * panic_factor)
+                
+                # Perform the Deposition (The core synthesis call)
+                word_advance = hw.render_word(
+                    paper_canvas, w, cx, y, 
+                    wander_offsets=wander[c_idx:c_idx+len(w)], 
+                    baseline_offset=word_drift, 
+                    font=current_font,
+                    masterpiece_canvas=masterpiece_canvas, 
+                    groove_canvas=groove_canvas, 
+                    fiber_map=fiber_map
+                )
+                
+                # Update horizontal cursor post-deposition
+                spacing = round(cfg.word_spacing_base * hw.word_spacing_noise() * panic_factor)
+                cx += word_advance + spacing
                 c_idx += len(w)
+            
+            # Cursor Advance: Move to the next ruled line
             y += cfg.line_spacing
             line_count += 1
+            # Dynamic Fatigue Slant: Incrementally shift the MDN bias to simulate hand tiredness
             hw._mixture = make_default_mixture(bias=cfg.bias + (line_count * cfg.fatigue_slant_rate), rng=hw._np_rng)
-        y = _snap_to_ruled_line(y + cfg.line_spacing, cfg)
+            
+        # Segment Snap: Ensure vertical hygiene between different blocks
+        y = _snap_to_ruled_line(y, cfg) # Anchor to the nearest ruled rule line
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # FINAL COMPOSITION & POST-PROCESSING
+    # ─────────────────────────────────────────────────────────────────────────────
     if masterpiece and masterpiece_canvas is not None:
-        hw.pbi_engine.apply_capillary_wicking(masterpiece_canvas, fiber_map)
+        hw.pbi_engine.apply_capillary_wicking(masterpiece_canvas, fiber_map) # Simulate ink bleeds
         img_bgr = cv2.cvtColor(np.array(paper_canvas.convert("RGB")), cv2.COLOR_RGB2BGR)
-        alpha = masterpiece_canvas[:, :, 3] / 255.0
+        alpha = masterpiece_canvas[:, :, 3] / 255.0 # Pre-calculate alpha for blending
         for c in range(3): img_bgr[:, :, c] = (alpha * masterpiece_canvas[:, :, c] + (1.0 - alpha) * img_bgr[:, :, c]).astype(np.uint8)
+        # Forensic Post-Process: Camera noise and chromatic entropy (v8.5)
         final_img = forensic_post_process(img_bgr, fiber_map)
         cv2.imwrite(output_path, final_img, [cv2.IMWRITE_PNG_COMPRESSION, 4])
-    else: paper_canvas.convert("RGB").save(output_path, "PNG")
+    else: 
+        # Fast Path (Preview Mode)
+        paper_canvas.convert("RGB").save(output_path, "PNG")
+    
     return output_path
 
 if __name__ == "__main__":
-    render_notebook_page("Stability Test v8.5. No more flying letters.", output_path="output/test_v85.png")
+    render_notebook_page([{"type": "header", "content": "Stability Test v8.5", "level": 1}, {"type": "paragraph", "content": "Perfect synchronization achieved."}], output_path="output/test_v85_sync.png")

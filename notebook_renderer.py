@@ -161,12 +161,23 @@ class HandwritingRenderer:
             draw = ImageDraw.Draw(canvas)
             draw.text((x + round(dx), base_y + round(dy)), char, font=font, fill=ink, anchor='ls')
         else:
+            # High-Precision Synthesis Strategy (v8.6): Pivot-Absolute Chip Generation
             pad = 32
+            # Create a localized chip with enough padding to prevent clipping during Slant or Tremor
             tmp = Image.new("RGBA", (char_w + pad * 2, char_h + pad * 2), (0, 0, 0, 0))
-            ImageDraw.Draw(tmp).text((pad - bbox[0], pad - bbox[1]), char, font=font, fill=ink)
-            tmp, px, py = perturb_glyph_mask(tmp, dx=dx, dy=dy, rotation=rotation, scale=scale, pivot_x=pad, pivot_y=pad, variation_magnitude=self.cfg.variation_magnitude, rng=self._np_rng)
-            paste_x = int(round(x + bbox[0] - pad + px))
-            paste_y = int(round(base_y + bbox[1] - pad + py))
+            # Draw the character anchored exactly to (pad, pad) as the Left-Baseline pivot
+            ImageDraw.Draw(tmp).text((pad, pad), char, font=font, fill=ink, anchor='ls')
+            
+            # Apply Bio-Kinematic Perturbations: Tracking the pivot coordinates during the transform
+            tmp, final_px, final_py = perturb_glyph_mask(
+                tmp, dx=dx, dy=dy, rotation=rotation, scale=scale, 
+                pivot_x=float(pad), pivot_y=float(pad), 
+                variation_magnitude=self.cfg.variation_magnitude, rng=self._np_rng
+            )
+            
+            # Sub-Pixel Alignment: Paste the chip such that its internal pivot (final_px) lands on the target baseline (x, base_y)
+            paste_x = int(round(x - final_px))
+            paste_y = int(round(base_y - final_py))
             if masterpiece_canvas is not None:
                 mask_alpha = np.array(tmp)[:, :, 3]
                 self._apply_unified_pbi(masterpiece_canvas, mask_alpha, paste_x, paste_y, groove_canvas, fiber_map)

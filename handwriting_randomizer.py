@@ -329,38 +329,38 @@ def perturb_glyph_mask(
         if pivot_y is not None: pivot_y *= scale
         w, h = glyph.size # Update working dimensions post-scale
 
-    # 3. Precision Rotation: Forensic Pivot Mapping (Prevents "Floating" Characters)
-    shift_x, shift_y = 0.0, 0.0
+    # 3. Precision Rotation: Min-Corner Mapping (v8.6 Forensic Standard)
+    new_pivot_x, new_pivot_y = pivot_x, pivot_y # Baseline: Pivot is fixed if no rotation occurs
     if abs(rotation) > 0.05:
         # Determine the Pivot Point (P) around which rotation occurs
-        # If no pivot specified, default to bottom-center of the character
-        cx = pivot_x if pivot_x is not None else w / 2.0 
-        cy = pivot_y if pivot_y is not None else h - 2.0 
+        px = pivot_x if pivot_x is not None else w / 2.0 
+        py = pivot_y if pivot_y is not None else h - 2.0 
         
-        # Perform Rotation: Use PIL's expand=True, which centers the result in a new larger canvas
-        rotated = glyph.rotate(-rotation, resample=Image.BICUBIC, center=(cx, cy), expand=True)
-        nw, nh = rotated.size # Get dimensions of the expanded canvas
+        # 3.1 Trace the Bounding Box Shift: Calculate the rotated footprint relative to the pivot
+        rad = math.radians(rotation) 
+        cos_t, sin_t = math.cos(rad), math.sin(rad) 
         
-        # Geometric Pivot Tracking: Calculate where the original pivot (cx, cy) moved in the expanded space
-        rad = math.radians(rotation) # Convert degrees to radians for trigonometry
-        cos_t, sin_t = math.cos(rad), math.sin(rad) # Pre-calculate rotation components
+        # Corner Verification: Trace all four vertices of the original chip
+        corners = [(0,0), (w,0), (w,h), (0,h)]
+        rot_corners = []
+        for cx_c, cy_c in corners:
+            # Vector from pivot to corner
+            vx, vy = cx_c - px, cy_c - py
+            # Rotated Vector (V')
+            rx = vx * cos_t - vy * sin_t
+            ry = vx * sin_t + vy * cos_t
+            rot_corners.append((rx, ry))
         
-        # Center-to-Pivot Vector (V): Displacement from the old center to the pivot point
-        vx, vy = cx - w/2.0, cy - h/2.0 
+        # Min-Corner Extraction: Find the new top-left relative to the pivot
+        min_x = min(c[0] for c in rot_corners)
+        min_y = min(c[1] for c in rot_corners)
         
-        # Rotate the Vector (V'): Apply the rotation transformation to the relative position
-        vx_rot = vx * cos_t - vy * sin_t
-        vy_rot = vx * sin_t + vy * cos_t
+        # 3.2 Affine Synthesis: Perform the actual bit-mask rotation
+        glyph = glyph.rotate(-rotation, resample=Image.BICUBIC, center=(px, py), expand=True)
         
-        # New Pivot Coordinates: Calculate the pivot's new location relative to the NEW center (nw/2, nh/2)
-        new_pivot_x = nw/2.0 + vx_rot
-        new_pivot_y = nh/2.0 + vy_rot
+        # 3.3 Target Pivot Projection: Calculate exact pivot location in the NEW canvas
+        new_pivot_x = -min_x
+        new_pivot_y = -min_y
         
-        # Page-Space Alignment: Calculate the shift required to lock the pivot to its original page coordinates
-        shift_x = cx - new_pivot_x 
-        shift_y = cy - new_pivot_y
-        
-        glyph = rotated # Update the glyph with the expanded, precision-aligned rotation
-
-    # Return the transformed mask and the cumulative sub-pixel offsets (px, py)
-    return glyph, dx + shift_x, dy + shift_y
+    # Final Telemetry: Return the transformed chip and its absolute internal pivot position
+    return glyph, new_pivot_x + dx, new_pivot_y + dy

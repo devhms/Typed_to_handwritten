@@ -66,6 +66,8 @@ class NotebookConfig:
     bias: float = 0.0
     word_spacing_base: int = 16
     header_line_spacing: int = 100
+    masterpiece_overlay_alpha: float = 1.00
+    masterpiece_preview_blend_alpha: float = 0.40
 
 class PaperGenerator:
     """Generates a clean ruled notebook paper background."""
@@ -153,25 +155,30 @@ class HandwritingRenderer:
         rotation, scale = sample['rotation'], sample['scale']
         dy = float(np.clip(dy, -2.5, 2.5)) 
         base_y = y_baseline + round(baseline_offset)
-        bbox = font.getbbox(char)
-        char_w, char_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        ls_bbox = font.getbbox(char, anchor='ls')
+        bbox_left, bbox_top, bbox_right, bbox_bottom = ls_bbox
+        char_w = bbox_right - bbox_left
+        char_h = bbox_bottom - bbox_top
         if char_w <= 0 or char_h <= 0: return round(font.getlength(" "))
 
-        if abs(rotation) < 0.1 and abs(scale - 1.0) < 0.01 and abs(dx) < 0.5 and abs(dy) < 0.5:
+        fast_path_ok = abs(rotation) < 0.1 and abs(scale - 1.0) < 0.01 and abs(dx) < 0.5 and abs(dy) < 0.5
+        if fast_path_ok:
             draw = ImageDraw.Draw(canvas)
             draw.text((x + round(dx), base_y + round(dy)), char, font=font, fill=ink, anchor='ls')
         else:
             # High-Precision Synthesis Strategy (v8.6): Pivot-Absolute Chip Generation
             pad = 32
-            # Create a localized chip with enough padding to prevent clipping during Slant or Tremor
+            # Allocate chip from baseline-relative extents to prevent ascender clipping.
             tmp = Image.new("RGBA", (char_w + pad * 2, char_h + pad * 2), (0, 0, 0, 0))
-            # Draw the character anchored exactly to (pad, pad) as the Left-Baseline pivot
-            ImageDraw.Draw(tmp).text((pad, pad), char, font=font, fill=ink, anchor='ls')
+            pivot_x = pad - bbox_left
+            pivot_y = pad - bbox_top
+            # Draw the character so its baseline pivot is fully in-bounds.
+            ImageDraw.Draw(tmp).text((pivot_x, pivot_y), char, font=font, fill=ink, anchor='ls')
             
             # Apply Bio-Kinematic Perturbations: Tracking the pivot coordinates during the transform
             tmp, final_px, final_py = perturb_glyph_mask(
                 tmp, dx=dx, dy=dy, rotation=rotation, scale=scale, 
-                pivot_x=float(pad), pivot_y=float(pad), 
+                pivot_x=float(pivot_x), pivot_y=float(pivot_y), 
                 variation_magnitude=self.cfg.variation_magnitude, rng=self._np_rng
             )
             
@@ -181,6 +188,15 @@ class HandwritingRenderer:
             if masterpiece_canvas is not None:
                 mask_alpha = np.array(tmp)[:, :, 3]
                 self._apply_unified_pbi(masterpiece_canvas, mask_alpha, paste_x, paste_y, groove_canvas, fiber_map)
+                overlay_alpha = float(np.clip(self.cfg.masterpiece_overlay_alpha, 0.0, 1.0))
+                if overlay_alpha > 0.0:
+                    if overlay_alpha < 1.0:
+                        rgba = np.array(tmp, copy=True)
+                        rgba[:, :, 3] = (rgba[:, :, 3].astype(np.float32) * overlay_alpha).astype(np.uint8)
+                        tmp_overlay = Image.fromarray(rgba, mode="RGBA")
+                    else:
+                        tmp_overlay = tmp
+                    canvas.paste(tmp_overlay, (paste_x, paste_y), tmp_overlay)
             else:
                 canvas.paste(tmp, (paste_x, paste_y), tmp)
 
@@ -382,6 +398,10 @@ def render_notebook_page(document_blocks, output_path="output/rendered_page.png"
         for c in range(3): img_bgr[:, :, c] = (alpha * masterpiece_canvas[:, :, c] + (1.0 - alpha) * img_bgr[:, :, c]).astype(np.uint8)
         # Forensic Post-Process: Camera noise and chromatic entropy (v8.5)
         final_img = forensic_post_process(img_bgr, fiber_map)
+        blend_alpha = float(np.clip(cfg.masterpiece_preview_blend_alpha, 0.0, 1.0))
+        if blend_alpha > 0.0:
+            preview_bgr = cv2.cvtColor(np.array(paper_canvas.convert("RGB")), cv2.COLOR_RGB2BGR)
+            final_img = cv2.addWeighted(final_img, 1.0 - blend_alpha, preview_bgr, blend_alpha, 0.0)
         cv2.imwrite(output_path, final_img, [cv2.IMWRITE_PNG_COMPRESSION, 4])
     else: 
         # Fast Path (Preview Mode)

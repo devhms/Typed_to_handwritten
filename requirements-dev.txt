@@ -1,0 +1,4 @@
+# Development tooling (as-of March 2026)
+# Install with: pip install -r requirements.txt -r requirements-dev.txt
+
+ruff>=0.15.8,<0.16

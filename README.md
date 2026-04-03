@@ -12,7 +12,34 @@ Official PakE OCR Corpus Synthetic Dataset Pipeline. This project generates high
 ## Setup
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+# source .venv/bin/activate
+
+python -m pip install --upgrade pip
 pip install -r requirements.txt
+# Optional dev tooling
+pip install -r requirements-dev.txt
+```
+
+## Run
+```bash
+# Start local web app
+python start_app.py
+
+# Or run direct pipeline
 python run_pipeline.py waterfall_summary.txt --headless
 ```
+
+## Quality Gates
+```bash
+# Regression tests
+python -m pytest -q
+
+# Lint/format check (optional)
+python -m ruff check .
+```
+
+## Dependencies (March 2026 Baseline)
+The dependency pins in `requirements.txt` target versions known to be current/stable by March 2026.

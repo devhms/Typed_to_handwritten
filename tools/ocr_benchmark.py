@@ -2,10 +2,10 @@ import argparse
 import json
 import re
 import statistics
-import time
-from pathlib import Path
-from typing import List, Sequence
 import sys
+import time
+from collections.abc import Sequence
+from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -114,7 +114,6 @@ def assemble_text_competitor_v1(ocr_boxes) -> str:
         ys = [float(pt[1]) for pt in bbox]
         x_min = min(xs)
         y_min = min(ys)
-        x_max = max(xs)
         y_max = max(ys)
         h = max(1.0, y_max - y_min)
         items.append(

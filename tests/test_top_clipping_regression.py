@@ -1,5 +1,5 @@
-import numpy as np
 import pytest
+import numpy as np
 from PIL import Image
 
 from notebook_renderer import HandwritingRenderer, NotebookConfig

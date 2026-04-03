@@ -1,0 +1,26 @@
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [
+  ".git",
+  ".venv",
+  "venv",
+  "env",
+  "output",
+  "assignments",
+  "agent-skills",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E402", "E501", "E701", "E702", "E741", "B905", "I001"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

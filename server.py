@@ -1,15 +1,12 @@
 import http.server
-from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import json
 import os
-import shutil
-from pathlib import Path
-from urllib.parse import urlparse, parse_qs
 import traceback
+from http.server import ThreadingHTTPServer
+from pathlib import Path
 
-# Sovereign v8.0 Imports
-from notebook_renderer import render_notebook_page, NotebookConfig
 from forensic_discriminator import ForensicDiscriminator
+from notebook_renderer import NotebookConfig, render_notebook_page
 
 PORT = 8000
 
@@ -28,7 +25,6 @@ class SovereignServerHandler(http.server.SimpleHTTPRequestHandler):
             data = json.loads(post_data.decode('utf-8'))
             
             text = data.get('text', '')
-            title = data.get('title', 'Assignment')
             is_preview = data.get('preview', False)
             
             # Parametric Config from Frontend
@@ -108,10 +104,10 @@ class SovereignServerHandler(http.server.SimpleHTTPRequestHandler):
 # Ensure directories exist
 Path("assignments").mkdir(parents=True, exist_ok=True)
 
-print(f"\n🚀 SOVEREIGN FORENSIC DASHBOARD SERVER (v8.0)")
-print(f"-----------------------------------------------")
+print("\nSOVEREIGN FORENSIC DASHBOARD SERVER (v8.0)")
+print("-----------------------------------------------")
 print(f"Backend syncing on: http://localhost:{PORT}")
-print(f"Listening for parametric generation (THREADED)...")
+print("Listening for parametric generation (THREADED)...")
 
 ThreadingHTTPServer.allow_reuse_address = True
 with ThreadingHTTPServer(("", PORT), SovereignServerHandler) as httpd:

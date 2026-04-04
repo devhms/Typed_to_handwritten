@@ -20,3 +20,5 @@ output/
 *.log
 .DS_Store
 Thumbs.db
+.firecrawl/
+augraphy_cache/

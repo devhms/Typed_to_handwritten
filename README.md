@@ -41,5 +41,35 @@ python -m pytest -q
 python -m ruff check .
 ```
 
+## Production Runbook
+
+Use these commands before shipping changes:
+
+```bash
+# 1) Fast safety checks
+python -m ruff check notebook_renderer.py server.py run_pipeline.py tools/ocr_benchmark.py tools/ocr_technique_sweep.py tests
+python -m pytest -q tests/test_top_clipping_regression.py tests/test_render_api_compat.py tests/test_pipeline_cli.py tests/test_ocr_benchmark_stats.py
+
+# 2) End-to-end pipeline smoke
+python run_pipeline.py --headless --severity mild
+
+# 3) OCR benchmark smoke with uncertainty
+python tools/ocr_benchmark.py --runs 3 --mode preview --style neat --preprocess competitor_v4 --bootstrap-iterations 300 --label smoke
+
+# 4) Technique sweep on generated report
+python tools/ocr_technique_sweep.py --report "output/ocr_benchmark/report_smoke.json" --profile quick --max-samples 3
+```
+
+### Interpreting OCR metrics
+- `CER` and `WER` in `tools/ocr_benchmark.py` are Levenshtein-based normalized error rates.
+- Reported confidence intervals are percentile bootstrap intervals on the mean error rates.
+- Compare techniques by both mean and CI width; prefer lower means with tighter intervals.
+
+### Operational notes
+- `run_pipeline.py` supports `--severity` and legacy `--mild/--heavy` flags for compatibility.
+- `render_notebook_page` supports both block-model input and legacy `body_text` + `title` usage.
+- `phase3_degradation.py` falls back to OpenCV if Augraphy fails at runtime; details are recorded in degradation metadata.
+- Keep `.firecrawl/` and `augraphy_cache/` out of commits (already ignored).
+
 ## Dependencies (March 2026 Baseline)
 The dependency pins in `requirements.txt` target versions known to be current/stable by March 2026.

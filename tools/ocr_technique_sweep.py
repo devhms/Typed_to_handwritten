@@ -4,9 +4,9 @@ import re
 import statistics
 import sys
 from pathlib import Path
+from typing import Any
 
 import cv2
-import easyocr
 
 
 def normalize_text(text: str) -> str:
@@ -53,9 +53,7 @@ def preprocess_none(image_bgr):
 
 
 def preprocess_upscale(image_bgr, scale: float):
-    return cv2.resize(
-        image_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC
-    )
+    return cv2.resize(image_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
 
 def preprocess_clahe(image_bgr):
@@ -129,6 +127,12 @@ def read_sorted_boxes(reader, image_bgr, kwargs):
     return assemble_sorted_text(boxes)
 
 
+def _create_easyocr_reader() -> Any:
+    import easyocr
+
+    return easyocr.Reader(["en"], gpu=False, verbose=False)
+
+
 def evaluate_method(reader, samples, method):
     cer_scores = []
     wer_scores = []
@@ -184,6 +188,9 @@ def evaluate_ensemble(reader, samples):
         cer, wer = cer_wer(row["reference_text"], chosen)
         cer_scores.append(cer)
         wer_scores.append(wer)
+
+    if not cer_scores:
+        return None
 
     return {
         "method": "ensemble_raw_vs_up15_by_conf",
@@ -269,9 +276,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Sweep OCR techniques on existing benchmark report images."
     )
-    parser.add_argument(
-        "--report", type=Path, required=True, help="Path to benchmark report JSON."
-    )
+    parser.add_argument("--report", type=Path, required=True, help="Path to benchmark report JSON.")
     parser.add_argument(
         "--profile",
         choices=["quick", "full"],
@@ -298,7 +303,7 @@ def main() -> None:
         print("No samples found in report.")
         sys.exit(1)
 
-    reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+    reader = _create_easyocr_reader()
 
     all_methods = build_methods()
     if args.profile == "quick":
@@ -319,7 +324,14 @@ def main() -> None:
             results.append(row)
 
     if args.profile == "full":
-        results.append(evaluate_ensemble(reader, samples))
+        ensemble_row = evaluate_ensemble(reader, samples)
+        if ensemble_row is not None:
+            results.append(ensemble_row)
+
+    if not results:
+        print("No methods produced usable results.")
+        sys.exit(2)
+
     results.sort(key=lambda x: (x["cer_mean"], x["wer_mean"]))
 
     print(f"Technique sweep for {args.report.name}")

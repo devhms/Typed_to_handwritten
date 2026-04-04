@@ -6,16 +6,16 @@ import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import cv2
-import easyocr
+import numpy as np
 
 from notebook_renderer import NotebookConfig, render_notebook_page
-
 
 BENCHMARK_SAMPLES = [
     "The quick brown fox jumps over the lazy dog near the market square.",
@@ -72,7 +72,56 @@ def error_rate(ref_units: Sequence[str], hyp_units: Sequence[str]) -> dict:
     }
 
 
-def preprocess_image_competitor_v1(image_bgr):
+def bootstrap_mean_ci(
+    values: Sequence[float],
+    *,
+    iterations: int,
+    alpha: float,
+    rng: np.random.Generator,
+) -> dict:
+    if not values:
+        return {
+            "mean": 0.0,
+            "median": 0.0,
+            "std": 0.0,
+            "ci_lower": 0.0,
+            "ci_upper": 0.0,
+            "ci_alpha": alpha,
+            "bootstrap_iterations": iterations,
+        }
+
+    arr = np.array(values, dtype=np.float64)
+    n = arr.size
+    if n == 1:
+        only = float(arr[0])
+        return {
+            "mean": only,
+            "median": only,
+            "std": 0.0,
+            "ci_lower": only,
+            "ci_upper": only,
+            "ci_alpha": alpha,
+            "bootstrap_iterations": iterations,
+        }
+
+    idx = rng.integers(0, n, size=(iterations, n))
+    boot_means = arr[idx].mean(axis=1)
+
+    lower_q = 100.0 * (alpha / 2.0)
+    upper_q = 100.0 * (1.0 - (alpha / 2.0))
+
+    return {
+        "mean": float(np.mean(arr)),
+        "median": float(np.median(arr)),
+        "std": float(np.std(arr, ddof=1)) if n > 1 else 0.0,
+        "ci_lower": float(np.percentile(boot_means, lower_q)),
+        "ci_upper": float(np.percentile(boot_means, upper_q)),
+        "ci_alpha": alpha,
+        "bootstrap_iterations": iterations,
+    }
+
+
+def preprocess_image_competitor_v1(image_bgr: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
 
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
@@ -95,13 +144,11 @@ def preprocess_image_competitor_v1(image_bgr):
     return cv2.cvtColor(clean, cv2.COLOR_GRAY2BGR)
 
 
-def preprocess_image_upscale(image_bgr, scale: float):
-    return cv2.resize(
-        image_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC
-    )
+def preprocess_image_upscale(image_bgr: np.ndarray, scale: float) -> np.ndarray:
+    return cv2.resize(image_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
 
-def assemble_text_competitor_v1(ocr_boxes) -> str:
+def assemble_text_sorted(ocr_boxes: list) -> tuple[str, float]:
     items = []
     for item in ocr_boxes:
         if len(item) < 3:
@@ -122,17 +169,18 @@ def assemble_text_competitor_v1(ocr_boxes) -> str:
                 "x": x_min,
                 "y": y_min,
                 "h": h,
+                "conf": conf,
             }
         )
 
     if not items:
-        return ""
+        return "", 0.0
 
     median_h = statistics.median([it["h"] for it in items])
     line_threshold = max(8.0, 0.65 * median_h)
     items.sort(key=lambda it: (it["y"], it["x"]))
 
-    lines = []
+    lines: list[list[dict]] = []
     for it in items:
         if not lines:
             lines.append([it])
@@ -144,98 +192,99 @@ def assemble_text_competitor_v1(ocr_boxes) -> str:
             lines.append([it])
 
     ordered_tokens = []
+    confs = []
     for line in lines:
         line.sort(key=lambda it: it["x"])
         ordered_tokens.extend(it["text"] for it in line)
+        confs.extend(it["conf"] for it in line)
 
-    return " ".join(ordered_tokens).strip()
+    mean_conf = float(statistics.mean(confs)) if confs else 0.0
+    return " ".join(ordered_tokens).strip(), mean_conf
+
+
+def apply_preprocess(preprocess_mode: str, image_bgr: np.ndarray) -> np.ndarray:
+    if preprocess_mode == "competitor_v1":
+        return preprocess_image_competitor_v1(image_bgr)
+    if preprocess_mode == "competitor_v3":
+        return preprocess_image_upscale(image_bgr, 1.5)
+    return image_bgr
+
+
+def _create_easyocr_reader() -> Any:
+    import easyocr
+
+    return easyocr.Reader(["en"], gpu=False, verbose=False)
 
 
 def ocr_easyocr(
-    reader: easyocr.Reader,
+    reader: Any,
     image_path: Path,
     preprocess_mode: str,
     preprocessed_image_path: Path | None,
-) -> str:
+) -> tuple[str, float]:
     image_bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     if image_bgr is None:
-        return ""
+        return "", 0.0
 
     if preprocess_mode == "none":
         paragraph_results = reader.readtext(image_bgr, detail=0, paragraph=True)
-        if isinstance(paragraph_results, list):
-            return " ".join(str(x) for x in paragraph_results)
-        return str(paragraph_results or "")
+        text = (
+            " ".join(str(x) for x in paragraph_results)
+            if isinstance(paragraph_results, list)
+            else str(paragraph_results or "")
+        )
+        return text, 0.0
 
-    if preprocess_mode == "competitor_v1":
-        image_bgr = preprocess_image_competitor_v1(image_bgr)
-        if preprocessed_image_path is not None:
-            preprocessed_image_path.parent.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(preprocessed_image_path), image_bgr)
+    image_bgr = apply_preprocess(preprocess_mode, image_bgr)
+    if preprocessed_image_path is not None:
+        preprocessed_image_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(preprocessed_image_path), image_bgr)
 
-    read_kwargs = {}
-    sort_text = False
-    if preprocess_mode == "competitor_v3":
-        image_bgr = preprocess_image_upscale(image_bgr, 1.5)
-        read_kwargs = {
-            "decoder": "beamsearch",
-            "beamWidth": 5,
-            "allowlist": OCR_ALLOWLIST,
-        }
-        if preprocessed_image_path is not None:
-            preprocessed_image_path.parent.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(preprocessed_image_path), image_bgr)
-    elif preprocess_mode == "competitor_v4":
-        read_kwargs = {
-            "decoder": "beamsearch",
-            "beamWidth": 5,
-            "allowlist": OCR_ALLOWLIST,
-        }
+    if preprocess_mode in {"competitor_v3", "competitor_v4"}:
+        ocr_boxes = reader.readtext(
+            image_bgr,
+            detail=1,
+            paragraph=False,
+            decoder="beamsearch",
+            beamWidth=5,
+            allowlist=OCR_ALLOWLIST,
+        )
     elif preprocess_mode == "competitor_v5":
-        read_kwargs = {
-            "decoder": "greedy",
-            "allowlist": OCR_ALLOWLIST,
-        }
-        sort_text = True
+        ocr_boxes = reader.readtext(
+            image_bgr,
+            detail=1,
+            paragraph=False,
+            decoder="greedy",
+            allowlist=OCR_ALLOWLIST,
+        )
+    else:
+        ocr_boxes = reader.readtext(image_bgr, detail=1, paragraph=False)
 
-    ocr_boxes = reader.readtext(image_bgr, detail=1, paragraph=False, **read_kwargs)
-    if preprocess_mode in {
-        "competitor_v1",
-        "competitor_v2",
-        "competitor_v3",
-        "competitor_v4",
-    }:
-        assembled = assemble_text_competitor_v1(ocr_boxes)
-        if assembled:
-            return assembled
+    assembled, conf_mean = assemble_text_sorted(ocr_boxes)
+    if assembled:
+        return assembled, conf_mean
 
-    if sort_text and ocr_boxes:
-        assembled = assemble_text_competitor_v1(ocr_boxes)
-        if assembled:
-            return assembled
-
-    # Fallback for robustness.
-    if ocr_boxes:
-        tokens = []
-        for item in ocr_boxes:
-            if isinstance(item, dict):
-                text_val = item.get("text", "")
-                if text_val:
-                    tokens.append(str(text_val))
-                continue
-            if isinstance(item, (list, tuple)):
-                try:
-                    _, text_val, *_ = item
-                except Exception:
-                    continue
-                if text_val:
-                    tokens.append(str(text_val))
-        return " ".join(tokens)
-
-    results = reader.readtext(image_bgr, detail=0, paragraph=True)
-    if isinstance(results, list):
-        return " ".join(str(x) for x in results)
-    return str(results or "")
+    if preprocess_mode in {"competitor_v3", "competitor_v4"}:
+        results = reader.readtext(
+            image_bgr,
+            detail=0,
+            paragraph=True,
+            decoder="beamsearch",
+            beamWidth=5,
+            allowlist=OCR_ALLOWLIST,
+        )
+    elif preprocess_mode == "competitor_v5":
+        results = reader.readtext(
+            image_bgr,
+            detail=0,
+            paragraph=True,
+            decoder="greedy",
+            allowlist=OCR_ALLOWLIST,
+        )
+    else:
+        results = reader.readtext(image_bgr, detail=0, paragraph=True)
+    text = " ".join(str(x) for x in results) if isinstance(results, list) else str(results or "")
+    return text, conf_mean
 
 
 def build_config(style: str) -> NotebookConfig:
@@ -263,13 +312,16 @@ def run_benchmark(
     output_dir: Path,
     label: str,
     preprocess_mode: str,
+    bootstrap_iterations: int,
+    bootstrap_alpha: float,
 ) -> dict:
     images_dir = output_dir / "images" / label
     images_dir.mkdir(parents=True, exist_ok=True)
     preprocessed_dir = output_dir / "preprocessed" / label
 
     cfg = build_config(style=style)
-    reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+    reader = _create_easyocr_reader()
+    bootstrap_rng = np.random.default_rng(seed + 10_000)
 
     per_sample = []
     started_at = time.time()
@@ -292,7 +344,7 @@ def run_benchmark(
         if preprocess_mode != "none":
             preprocessed_image_path = preprocessed_dir / f"{sample_id}_{mode}.png"
 
-        ocr_text = ocr_easyocr(
+        ocr_text, confidence_mean = ocr_easyocr(
             reader,
             image_path,
             preprocess_mode=preprocess_mode,
@@ -314,6 +366,7 @@ def run_benchmark(
                 "ocr_text": ocr_text,
                 "reference_normalized": ref_norm,
                 "ocr_normalized": ocr_norm,
+                "confidence_mean": confidence_mean,
                 "cer": cer_stats,
                 "wer": wer_stats,
             }
@@ -321,6 +374,20 @@ def run_benchmark(
 
     cer_values = [row["cer"]["rate"] for row in per_sample]
     wer_values = [row["wer"]["rate"] for row in per_sample]
+    conf_values = [row["confidence_mean"] for row in per_sample]
+
+    cer_agg = bootstrap_mean_ci(
+        cer_values,
+        iterations=bootstrap_iterations,
+        alpha=bootstrap_alpha,
+        rng=bootstrap_rng,
+    )
+    wer_agg = bootstrap_mean_ci(
+        wer_values,
+        iterations=bootstrap_iterations,
+        alpha=bootstrap_alpha,
+        rng=bootstrap_rng,
+    )
 
     ended_at = time.time()
 
@@ -338,21 +405,31 @@ def run_benchmark(
             "duration_seconds": ended_at - started_at,
         },
         "aggregate": {
-            "cer_mean": float(statistics.mean(cer_values)) if cer_values else 0.0,
-            "cer_median": float(statistics.median(cer_values)) if cer_values else 0.0,
-            "wer_mean": float(statistics.mean(wer_values)) if wer_values else 0.0,
-            "wer_median": float(statistics.median(wer_values)) if wer_values else 0.0,
+            "cer_mean": cer_agg["mean"],
+            "cer_median": cer_agg["median"],
+            "cer_std": cer_agg["std"],
+            "cer_ci_lower": cer_agg["ci_lower"],
+            "cer_ci_upper": cer_agg["ci_upper"],
+            "wer_mean": wer_agg["mean"],
+            "wer_median": wer_agg["median"],
+            "wer_std": wer_agg["std"],
+            "wer_ci_lower": wer_agg["ci_lower"],
+            "wer_ci_upper": wer_agg["ci_upper"],
+            "confidence_mean": float(statistics.mean(conf_values)) if conf_values else 0.0,
         },
         "per_sample": per_sample,
     }
 
 
-def main() -> None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run OCR benchmark with CER/WER JSON report."
+        description=("Run OCR benchmark with CER/WER report and bootstrap confidence intervals.")
     )
     parser.add_argument(
-        "--runs", type=int, default=12, help="Number of rendered samples."
+        "--runs",
+        type=int,
+        default=12,
+        help="Number of rendered samples (minimum: 1).",
     )
     parser.add_argument("--seed", type=int, default=42, help="Base random seed.")
     parser.add_argument(
@@ -377,7 +454,7 @@ def main() -> None:
         "--label",
         type=str,
         default=None,
-        help="Optional run label used in report filename and images directory.",
+        help="Optional run label used in report filename and image output directory.",
     )
     parser.add_argument(
         "--preprocess",
@@ -392,8 +469,33 @@ def main() -> None:
         default="none",
         help="OCR-side preprocessing pipeline.",
     )
+    parser.add_argument(
+        "--bootstrap-iterations",
+        type=int,
+        default=1000,
+        help="Bootstrap resamples used for CER/WER confidence intervals.",
+    )
+    parser.add_argument(
+        "--ci-alpha",
+        type=float,
+        default=0.05,
+        help="Confidence interval alpha (0.05 gives a 95%% CI).",
+    )
 
     args = parser.parse_args()
+
+    if args.runs < 1:
+        parser.error("--runs must be >= 1")
+    if args.bootstrap_iterations < 100:
+        parser.error("--bootstrap-iterations must be >= 100")
+    if not (0.0 < args.ci_alpha < 1.0):
+        parser.error("--ci-alpha must be between 0 and 1")
+
+    return args
+
+
+def main() -> None:
+    args = parse_args()
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     label = args.label or f"{args.mode}-{args.style}-{timestamp}"
 
@@ -405,6 +507,8 @@ def main() -> None:
         output_dir=args.output_dir,
         label=label,
         preprocess_mode=args.preprocess,
+        bootstrap_iterations=args.bootstrap_iterations,
+        bootstrap_alpha=args.ci_alpha,
     )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -412,9 +516,19 @@ def main() -> None:
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     aggregate = report["aggregate"]
+    ci_level = int(round((1.0 - args.ci_alpha) * 100))
     print(f"[OCR-BENCH] report: {report_path}")
-    print(f"[OCR-BENCH] CER mean: {aggregate['cer_mean']:.4f}")
-    print(f"[OCR-BENCH] WER mean: {aggregate['wer_mean']:.4f}")
+    print(
+        "[OCR-BENCH] CER mean: "
+        f"{aggregate['cer_mean']:.4f} "
+        f"({ci_level}% CI: {aggregate['cer_ci_lower']:.4f}..{aggregate['cer_ci_upper']:.4f})"
+    )
+    print(
+        "[OCR-BENCH] WER mean: "
+        f"{aggregate['wer_mean']:.4f} "
+        f"({ci_level}% CI: {aggregate['wer_ci_lower']:.4f}..{aggregate['wer_ci_upper']:.4f})"
+    )
+    print(f"[OCR-BENCH] Mean OCR confidence: {aggregate['confidence_mean']:.4f}")
 
 
 if __name__ == "__main__":

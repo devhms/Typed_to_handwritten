@@ -2,6 +2,7 @@
 addopts = "-ra"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100

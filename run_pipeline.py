@@ -26,6 +26,7 @@ output/
     └── pake_ocr_ses_001_typed_document.txt
 """
 
+import argparse
 import sys
 import time
 import json
@@ -58,32 +59,74 @@ Moreover, the informations regarding new procedures will be circulated shortly.
 
 def run_phase(name: str, func, *args, **kwargs):
     """Run a single pipeline phase with timing and error handling."""
-    print(f"\n{'═' * 56}")
-    print(f"  ► {name}")
-    print(f"{'═' * 56}")
+    print(f"\n{'=' * 56}")
+    print(f"  > {name}")
+    print(f"{'=' * 56}")
     t0 = time.perf_counter()
     try:
         result = func(*args, **kwargs)
         elapsed = time.perf_counter() - t0
-        print(f"  ✓ {name} completed in {elapsed:.2f}s")
-        return result, elapsed
+        print(f"  [OK] {name} completed in {elapsed:.2f}s")
+        return result, elapsed, True
     except Exception as exc:
         elapsed = time.perf_counter() - t0
-        print(f"  ✗ {name} FAILED after {elapsed:.2f}s")
+        print(f"  [FAIL] {name} failed after {elapsed:.2f}s")
         print(f"    Error: {exc}")
         traceback.print_exc()
-        return None, elapsed
+        return None, elapsed, False
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=("Master execution script for the PakE OCR corpus pipeline (phases 1 to 4).")
+    )
+    parser.add_argument(
+        "input_text_file",
+        nargs="?",
+        help="Optional input text file path. Uses built-in sample when omitted.",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Skip live typing automation in phase 4.",
+    )
+    parser.add_argument(
+        "--severity",
+        choices=["mild", "standard", "heavy"],
+        default="standard",
+        help="Phase 3 degradation severity.",
+    )
+    parser.add_argument(
+        "--mild",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--heavy",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+
+    args = parser.parse_args()
+    if args.mild and args.heavy:
+        parser.error("--mild and --heavy cannot be used together")
+    if args.mild:
+        args.severity = "mild"
+    if args.heavy:
+        args.severity = "heavy"
+    return args
 
 
 def main():
-    # ── CLI arguments ─────────────────────────────────────────────────────
-    args     = sys.argv[1:]
-    headless = "--headless" in args
-    txt_args = [a for a in args if not a.startswith("--")]
+    # -- CLI arguments -----------------------------------------------------
+    args = parse_args()
 
-    if txt_args:
-        raw_text = Path(txt_args[0]).read_text(encoding="utf-8")
-        print(f"[INFO] Input text loaded from: {txt_args[0]}")
+    if args.input_text_file:
+        input_path = Path(args.input_text_file)
+        if not input_path.exists():
+            raise SystemExit(f"[FATAL] Input file not found: {args.input_text_file}")
+        raw_text = input_path.read_text(encoding="utf-8")
+        print(f"[INFO] Input text loaded from: {args.input_text_file}")
     else:
         raw_text = SAMPLE_TEXT.strip()
         print("[INFO] Using built-in sample text.")
@@ -96,9 +139,8 @@ def main():
     # ─────────────────────────────────────────────────────────────────────
     from phase1_nlp_augmentation import augment
 
-    (aug_result, t1) = run_phase(
-        "Phase 1 — NLP Augmentation (PakE Dialect Modeling)",
-        augment, raw_text
+    (aug_result, t1, ok1) = run_phase(
+        "Phase 1 - NLP Augmentation (PakE Dialect Modeling)", augment, raw_text
     )
     timings["phase1"] = t1
 
@@ -121,13 +163,13 @@ def main():
     # ─────────────────────────────────────────────────────────────────────
     from notebook_renderer import render_notebook_page
 
-    (rendered_path, t2) = run_phase(
+    (rendered_path, t2, ok2) = run_phase(
         "Phase 2 -- Notebook Renderer (Clean Handwriting)",
         render_notebook_page,
-        body_text     = augmented_text,
-        output_path   = str(Path("output/phase2/rendered_page.png")),
-        title         = "PakE OCR Corpus -- Document",
-        seed          = 42,
+        body_text=augmented_text,
+        output_path=str(Path("output/phase2/rendered_page.png")),
+        title="PakE OCR Corpus -- Document",
+        seed=42,
     )
     timings["phase2"] = t2
 
@@ -140,17 +182,13 @@ def main():
     # ─────────────────────────────────────────────────────────────────────
     from phase3_degradation import degrade_image
 
-    severity = "standard"
-    if "--mild" in args: severity = "mild"
-    if "--heavy" in args: severity = "heavy"
-
-    (degraded, t3) = run_phase(
-        "Phase 3 — Environmental Degradation (Augraphy Pipeline)",
+    (degraded, t3, ok3) = run_phase(
+        "Phase 3 - Environmental Degradation (Augraphy Pipeline)",
         degrade_image,
-        input_path    = Path("output/phase2/rendered_page.png"),
-        output_path   = Path("output/phase3/degraded_page.png"),
-        metadata_path = Path("output/phase3/degradation_metadata.json"),
-        severity      = severity
+        input_path=Path("output/phase2/rendered_page.png"),
+        output_path=Path("output/phase3/degraded_page.png"),
+        metadata_path=Path("output/phase3/degradation_metadata.json"),
+        severity=args.severity,
     )
     timings["phase3"] = t3
 
@@ -159,13 +197,13 @@ def main():
     # ─────────────────────────────────────────────────────────────────────
     from phase4_telemetry import simulate_transcription
 
-    (session, t4) = run_phase(
-        "Phase 4 — Keystroke Telemetry Simulation (Forensics)",
+    (session, t4, ok4) = run_phase(
+        "Phase 4 - Keystroke Telemetry Simulation (Forensics)",
         simulate_transcription,
-        text       = augmented_text,
-        session_id = "pake_ocr_ses_001",
-        output_dir = Path("output/phase4"),
-        headless   = headless,
+        text=augmented_text,
+        session_id="pake_ocr_ses_001",
+        output_dir=Path("output/phase4"),
+        headless=args.headless,
     )
     timings["phase4"] = t4
 
@@ -174,15 +212,21 @@ def main():
     # ─────────────────────────────────────────────────────────────────────
     total = time.perf_counter() - pipeline_start
 
-    print(f"\n{'═' * 56}")
-    print("  PIPELINE COMPLETE — Summary")
-    print(f"{'═' * 56}")
+    print(f"\n{'=' * 56}")
+    print("  PIPELINE COMPLETE - Summary")
+    print(f"{'=' * 56}")
+    phase_ok = {
+        "phase1": ok1,
+        "phase2": ok2,
+        "phase3": ok3,
+        "phase4": ok4,
+    }
     for phase, t in timings.items():
-        status = "✓" if t > 0 else "✗"
+        status = "OK" if phase_ok.get(phase, False) else "FAIL"
         print(f"  {status}  {phase:<12}  {t:>6.2f}s")
-    print(f"{'─' * 56}")
+    print(f"{'-' * 56}")
     print(f"     Total runtime : {total:.2f}s")
-    print(f"{'═' * 56}")
+    print(f"{'=' * 56}")
     print("""
   Output files:
     output/phase1/augmented_text.txt

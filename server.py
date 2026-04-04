@@ -1,9 +1,12 @@
+import base64
 import http.server
 import json
 import logging
+import mimetypes
 import os
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import unquote
 
 from forensic_discriminator import ForensicDiscriminator
 from notebook_renderer import NotebookConfig, render_notebook_page
@@ -12,6 +15,7 @@ PORT = 8000
 
 MAX_REQUEST_BYTES = 1_000_000
 LOGGER = logging.getLogger("handwritten.server")
+STATIC_ROOT = Path(__file__).resolve().parent
 
 
 def _as_float(value, fallback):
@@ -40,6 +44,183 @@ def _json_error(message: str) -> dict:
     return {"success": False, "error": message}
 
 
+def _assignments_dir() -> Path:
+    if os.getenv("VERCEL"):
+        return Path(os.getenv("TMPDIR", "/tmp")) / "assignments"
+    return Path("assignments")
+
+
+def _handle_generation(data: dict) -> tuple[dict, int]:
+    text = str(data.get("text", ""))
+    is_preview = bool(data.get("preview", False))
+
+    config_data = data.get("config", {})
+    if not isinstance(config_data, dict):
+        config_data = {}
+    style = str(config_data.get("style", "neat"))
+
+    blocks = _parse_document_blocks(text)
+
+    try:
+        cfg = NotebookConfig(style=style)
+        if "drift_intensity" in config_data:
+            cfg.drift_intensity = _as_float(config_data.get("drift_intensity"), cfg.drift_intensity)
+        if "variation_magnitude" in config_data:
+            cfg.variation_magnitude = _as_float(
+                config_data.get("variation_magnitude"), cfg.variation_magnitude
+            )
+        if not is_preview:
+            cfg.masterpiece_overlay_alpha = _as_float(
+                config_data.get("masterpiece_overlay_alpha", 0.0),
+                cfg.masterpiece_overlay_alpha,
+            )
+            cfg.masterpiece_preview_blend_alpha = _as_float(
+                config_data.get("masterpiece_preview_blend_alpha", 0.0),
+                cfg.masterpiece_preview_blend_alpha,
+            )
+
+        output_name = "notebook_preview.png" if is_preview else "notebook_final.png"
+        assignments_dir = _assignments_dir()
+        assignments_dir.mkdir(parents=True, exist_ok=True)
+        final_path = assignments_dir / output_name
+
+        render_notebook_page(
+            document_blocks=blocks,
+            output_path=str(final_path),
+            seed=42,
+            config=cfg,
+            masterpiece=not is_preview,
+        )
+
+        audit_results = None
+        if not is_preview:
+            judge = ForensicDiscriminator()
+            audit_results = judge.score_authenticity(final_path)
+
+        response = {
+            "success": True,
+            "image_url": f"/assignments/{output_name}?t={os.path.getmtime(final_path)}",
+            "audit": audit_results,
+            "is_preview": is_preview,
+        }
+
+        if os.getenv("VERCEL"):
+            encoded = base64.b64encode(final_path.read_bytes()).decode("ascii")
+            response["image_data_url"] = f"data:image/png;base64,{encoded}"
+
+        return response, 200
+    except Exception as exc:
+        LOGGER.exception("Generation failed")
+        return {"success": False, "error": str(exc)}, 500
+
+
+_STATUS_TEXT = {
+    200: "OK",
+    400: "Bad Request",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    413: "Payload Too Large",
+    500: "Internal Server Error",
+}
+
+
+def _wsgi_response(start_response, status: int, body: bytes, content_type: str) -> list[bytes]:
+    start_response(
+        f"{status} {_STATUS_TEXT.get(status, 'OK')}",
+        [
+            ("Content-Type", content_type),
+            ("Content-Length", str(len(body))),
+            ("Access-Control-Allow-Origin", "*"),
+        ],
+    )
+    return [body]
+
+
+def _wsgi_json(start_response, payload: dict, status: int) -> list[bytes]:
+    body = json.dumps(payload).encode("utf-8")
+    return _wsgi_response(start_response, status, body, "application/json; charset=utf-8")
+
+
+def _resolve_static_file(path_info: str) -> Path | None:
+    request_path = unquote(path_info or "/")
+    relative_path = request_path.lstrip("/") or "index.html"
+    candidate = (STATIC_ROOT / relative_path).resolve()
+    try:
+        candidate.relative_to(STATIC_ROOT)
+    except ValueError:
+        return None
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _resolve_assignment_file(path_info: str) -> Path | None:
+    request_path = unquote(path_info or "/")
+    if not request_path.startswith("/assignments/"):
+        return None
+
+    rel = request_path[len("/assignments/") :]
+    if not rel:
+        return None
+
+    assignments_root = _assignments_dir().resolve()
+    candidate = (assignments_root / rel).resolve()
+    try:
+        candidate.relative_to(assignments_root)
+    except ValueError:
+        return None
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _serve_file_wsgi(start_response, file_path: Path) -> list[bytes]:
+    content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    return _wsgi_response(start_response, 200, file_path.read_bytes(), content_type)
+
+
+def app(environ, start_response):
+    method = str(environ.get("REQUEST_METHOD", "GET")).upper()
+    path_info = str(environ.get("PATH_INFO", "/") or "/")
+
+    if method == "OPTIONS":
+        return _wsgi_response(start_response, 200, b"", "text/plain; charset=utf-8")
+
+    if method == "POST" and path_info == "/generate":
+        try:
+            content_length = int(environ.get("CONTENT_LENGTH") or "0")
+        except ValueError:
+            content_length = 0
+
+        if content_length <= 0:
+            return _wsgi_json(start_response, _json_error("Empty request body"), 400)
+        if content_length > MAX_REQUEST_BYTES:
+            return _wsgi_json(start_response, _json_error("Request too large"), 413)
+
+        payload = environ["wsgi.input"].read(content_length)
+        try:
+            data = json.loads(payload.decode("utf-8"))
+        except json.JSONDecodeError:
+            return _wsgi_json(start_response, _json_error("Invalid JSON payload"), 400)
+
+        response, status = _handle_generation(data)
+        return _wsgi_json(start_response, response, status)
+
+    if method in {"GET", "HEAD"}:
+        normalized = "/index.html" if path_info in {"", "/"} else path_info
+        file_path = _resolve_assignment_file(normalized) or _resolve_static_file(normalized)
+        if file_path is None:
+            return _wsgi_json(start_response, _json_error("Not Found"), 404)
+
+        if method == "HEAD":
+            content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+            return _wsgi_response(start_response, 200, b"", content_type)
+
+        return _serve_file_wsgi(start_response, file_path)
+
+    return _wsgi_json(start_response, _json_error("Method Not Allowed"), 405)
+
+
 class SovereignServerHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         """Serve static files like index.html, assets, fonts."""
@@ -65,77 +246,8 @@ class SovereignServerHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(_json_error("Invalid JSON payload"), status=400)
                 return
 
-            text = str(data.get("text", ""))
-            is_preview = bool(data.get("preview", False))
-
-            # Parametric Config from Frontend
-            config_data = data.get("config", {})
-            if not isinstance(config_data, dict):
-                config_data = {}
-            style = str(config_data.get("style", "neat"))
-
-            # ─────────────────────────────────────────────────────────────────────────────
-            # UI-UX PRO MAX: BLOCK-BASED DOCUMENT PARSER (v8.5)
-            # ─────────────────────────────────────────────────────────────────────────────
-            # Instead of a simple split, we parse the buffer into a structured layout model.
-
-            blocks = _parse_document_blocks(text)
-
-            try:
-                # 1. Update Config Object with Sliders
-                cfg = NotebookConfig(style=style)
-                if "drift_intensity" in config_data:
-                    cfg.drift_intensity = _as_float(
-                        config_data.get("drift_intensity"), cfg.drift_intensity
-                    )
-                if "variation_magnitude" in config_data:
-                    cfg.variation_magnitude = _as_float(
-                        config_data.get("variation_magnitude"), cfg.variation_magnitude
-                    )
-                if not is_preview:
-                    cfg.masterpiece_overlay_alpha = _as_float(
-                        config_data.get("masterpiece_overlay_alpha", 0.0),
-                        cfg.masterpiece_overlay_alpha,
-                    )
-                    cfg.masterpiece_preview_blend_alpha = _as_float(
-                        config_data.get("masterpiece_preview_blend_alpha", 0.0),
-                        cfg.masterpiece_preview_blend_alpha,
-                    )
-
-                # 2. Rendering Selection (Preview vs Masterpiece)
-                output_name = (
-                    "notebook_preview.png" if is_preview else "notebook_final.png"
-                )  # Context-aware filenames
-                final_path = (
-                    Path("assignments") / output_name
-                )  # Ensure high-resolution artifacts are stored centrally
-
-                # Perform the Synthesis with the new Document Model
-                render_notebook_page(
-                    document_blocks=blocks,  # Pass the structured block model instead of flat text (v8.5 Refactor)
-                    output_path=str(final_path),  # Final write location
-                    seed=42,  # Static seed for deterministic forensic evaluation
-                    config=cfg,  # The kinematic profile selected via the Bento UI
-                    masterpiece=not is_preview,  # Elevate to PBI-Physics mode only for high-res exports
-                )
-
-                # 4. Forensic Audit (Skip or use lightweight mode for previews)
-                audit_results = None
-                if not is_preview:
-                    judge = ForensicDiscriminator()
-                    audit_results = judge.score_authenticity(final_path)
-
-                response = {
-                    "success": True,
-                    "image_url": f"/assignments/{output_name}?t={os.path.getmtime(final_path)}",
-                    "audit": audit_results,
-                    "is_preview": is_preview,
-                }
-                self._send_json(response)
-
-            except Exception as e:
-                LOGGER.exception("Generation failed")
-                self._send_json({"success": False, "error": str(e)}, status=500)
+            response, status = _handle_generation(data)
+            self._send_json(response, status=status)
         else:
             self.send_error(404, "Not Found")
 
@@ -147,19 +259,22 @@ class SovereignServerHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode("utf-8"))
 
 
-# Ensure directories exist
-Path("assignments").mkdir(parents=True, exist_ok=True)
+def run_dev_server(port: int = PORT) -> None:
+    _assignments_dir().mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+    print("\nSOVEREIGN FORENSIC DASHBOARD SERVER (v8.0)")
+    print("-----------------------------------------------")
+    print(f"Backend syncing on: http://localhost:{port}")
+    print("Listening for parametric generation (THREADED)...")
 
-print("\nSOVEREIGN FORENSIC DASHBOARD SERVER (v8.0)")
-print("-----------------------------------------------")
-print(f"Backend syncing on: http://localhost:{PORT}")
-print("Listening for parametric generation (THREADED)...")
+    ThreadingHTTPServer.allow_reuse_address = True
+    with ThreadingHTTPServer(("", port), SovereignServerHandler) as httpd:
+        httpd.serve_forever()
 
-ThreadingHTTPServer.allow_reuse_address = True
-with ThreadingHTTPServer(("", PORT), SovereignServerHandler) as httpd:
-    httpd.serve_forever()
+
+if __name__ == "__main__":
+    run_dev_server()

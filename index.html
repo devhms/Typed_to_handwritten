@@ -540,7 +540,11 @@ Analysis of the power-law coupling reveals a natural curvature-velocity trade-of
                 const data = await response.json();
                 
                 if (data.success) {
-                    previewImg.src = data.image_url + "&t=" + Date.now(); // Cache-busting image update
+                    if (data.image_data_url) {
+                        previewImg.src = data.image_data_url; // Serverless fallback path (Vercel)
+                    } else {
+                        previewImg.src = data.image_url + "&t=" + Date.now(); // Cache-busting image update
+                    }
                     updateUI(data.audit, isPreview); // Refresh forensic HUD with new telemetry metrics
                     latencyDisplay.innerText = Math.round(performance.now() - startTime) + "ms"; // Display actual round-trip latency
                     setSyncStatus(true); // Confirmation of successful sync loop

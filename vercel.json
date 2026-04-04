@@ -1,17 +1,9 @@
 {
-  "functions": {
-    "server.py": {
-      "runtime": "python3.12"
-    }
-  },
-  "routes": [
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
     {
-      "src": "/generate",
-      "dest": "/server.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
+      "source": "/generate",
+      "destination": "/server.py"
     }
   ]
 }

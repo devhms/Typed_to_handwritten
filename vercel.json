@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/**/*.py": {
+    "api/*.py": {
       "maxDuration": 60,
       "memory": 1024
     }
@@ -9,11 +9,11 @@
   "rewrites": [
     {
       "source": "/generate",
-      "destination": "/api/generate"
+      "destination": "/api/generate.py"
     },
     {
       "source": "/health",
-      "destination": "/api/health"
+      "destination": "/api/health.py"
     }
   ]
 }

@@ -78,12 +78,9 @@ python tools/ocr_technique_sweep.py --report "output/ocr_benchmark/report_smoke.
 - Use this for uptime probes and quick post-deploy sanity checks.
 
 ### Function runtime budget
-- `vercel.json` sets `server.py` limits:
-  - `maxDuration: 60`
-  - `memory: 1024`
-- This keeps the generation endpoint bounded and predictable under load.
-
-Note: Vercel function budgets are applied to `api/*.py` entrypoints.
+- Python runtime is auto-detected from `server.py` + `pyproject.toml`.
+- If you want strict function budgets, set them in Vercel project settings under **Functions**.
+- Keep repository `vercel.json` focused on routing/rewrite behavior.
 
 ### Post-deploy smoke test
 ```bash

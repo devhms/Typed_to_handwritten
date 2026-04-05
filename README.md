@@ -71,5 +71,26 @@ python tools/ocr_technique_sweep.py --report "output/ocr_benchmark/report_smoke.
 - `phase3_degradation.py` falls back to OpenCV if Augraphy fails at runtime; details are recorded in degradation metadata.
 - Keep `.firecrawl/` and `augraphy_cache/` out of commits (already ignored).
 
+## Vercel Operations
+
+### Health endpoint
+- `GET /health` returns deployment health metadata (service, runtime, version).
+- Use this for uptime probes and quick post-deploy sanity checks.
+
+### Function runtime budget
+- `vercel.json` sets `server.py` limits:
+  - `maxDuration: 60`
+  - `memory: 1024`
+- This keeps the generation endpoint bounded and predictable under load.
+
+### Post-deploy smoke test
+```bash
+python scripts/post_deploy_smoke.py --base-url https://typed-to-handwritten.vercel.app
+```
+
+Smoke test validates:
+- `/health` returns `success=true` and `status=ok`
+- `/generate` accepts a preview payload and returns image output
+
 ## Dependencies (March 2026 Baseline)
 The dependency pins in `requirements.txt` target versions known to be current/stable by March 2026.

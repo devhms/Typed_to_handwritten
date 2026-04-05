@@ -8,12 +8,10 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
-from forensic_discriminator import ForensicDiscriminator
-from notebook_renderer import NotebookConfig, render_notebook_page
-
 PORT = 8000
 
 MAX_REQUEST_BYTES = 1_000_000
+MAX_TEXT_CHARS = 20_000
 LOGGER = logging.getLogger("handwritten.server")
 STATIC_ROOT = Path(__file__).resolve().parent
 
@@ -44,6 +42,18 @@ def _json_error(message: str) -> dict:
     return {"success": False, "error": message}
 
 
+def _health_payload() -> dict:
+    commit_sha = os.getenv("VERCEL_GIT_COMMIT_SHA") or os.getenv("GIT_COMMIT_SHA") or "dev"
+    runtime = "vercel" if os.getenv("VERCEL") else "local"
+    return {
+        "success": True,
+        "status": "ok",
+        "service": "typed-to-handwritten",
+        "runtime": runtime,
+        "version": commit_sha,
+    }
+
+
 def _assignments_dir() -> Path:
     if os.getenv("VERCEL"):
         return Path(os.getenv("TMPDIR", "/tmp")) / "assignments"
@@ -51,7 +61,17 @@ def _assignments_dir() -> Path:
 
 
 def _handle_generation(data: dict) -> tuple[dict, int]:
+    # Lazy imports keep /health lightweight and reduce cold-start failures.
+    from forensic_discriminator import ForensicDiscriminator
+    from notebook_renderer import NotebookConfig, render_notebook_page
+
+    if not isinstance(data, dict):
+        return _json_error("JSON payload must be an object"), 400
+
     text = str(data.get("text", ""))
+    if len(text) > MAX_TEXT_CHARS:
+        return _json_error("Text payload is too large"), 413
+
     is_preview = bool(data.get("preview", False))
 
     config_data = data.get("config", {})
@@ -131,6 +151,8 @@ def _wsgi_response(start_response, status: int, body: bytes, content_type: str) 
             ("Content-Type", content_type),
             ("Content-Length", str(len(body))),
             ("Access-Control-Allow-Origin", "*"),
+            ("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD"),
+            ("Access-Control-Allow-Headers", "Content-Type"),
         ],
     )
     return [body]
@@ -186,6 +208,11 @@ def app(environ, start_response):
     if method == "OPTIONS":
         return _wsgi_response(start_response, 200, b"", "text/plain; charset=utf-8")
 
+    if path_info == "/health" and method in {"GET", "HEAD"}:
+        if method == "HEAD":
+            return _wsgi_response(start_response, 200, b"", "application/json; charset=utf-8")
+        return _wsgi_json(start_response, _health_payload(), 200)
+
     if method == "POST" and path_info == "/generate":
         try:
             content_length = int(environ.get("CONTENT_LENGTH") or "0")
@@ -224,9 +251,33 @@ def app(environ, start_response):
 class SovereignServerHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         """Serve static files like index.html, assets, fonts."""
+        clean_path = self.path.split("?", 1)[0]
+        if clean_path == "/health":
+            self._send_json(_health_payload(), status=200)
+            return
+
         if self.path == "/" or self.path == "":
             self.path = "/index.html"
         return super().do_GET()
+
+    def do_HEAD(self):
+        clean_path = self.path.split("?", 1)[0]
+        if clean_path == "/health":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+            return
+        return super().do_HEAD()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
 
     def do_POST(self):
         """Handle real-time generation and forensic auditing."""
@@ -255,6 +306,8 @@ class SovereignServerHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
         self.wfile.write(json.dumps(data).encode("utf-8"))
 

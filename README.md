@@ -83,6 +83,8 @@ python tools/ocr_technique_sweep.py --report "output/ocr_benchmark/report_smoke.
   - `memory: 1024`
 - This keeps the generation endpoint bounded and predictable under load.
 
+Note: Vercel function budgets are applied to `api/index.py` (entrypoint proxy to `server.app`).
+
 ### Post-deploy smoke test
 ```bash
 python scripts/post_deploy_smoke.py --base-url https://typed-to-handwritten.vercel.app

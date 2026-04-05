@@ -1,8 +1,8 @@
 # Runtime dependency baseline (as-of March 2026)
-# Python >= 3.11
+# Python >= 3.12 for Vercel parity
 
 # Core rendering and image processing
-opencv-python>=4.13.0.92,<4.14
+opencv-python-headless>=4.13.0.92,<4.14
 Pillow>=12.1.1,<12.2
 numpy>=2.4.4,<2.5
 scipy>=1.17.1,<1.18
